@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>postsleuth</title>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4,32 H26" stroke="#fff" stroke-width="11"/>
+    <path d="M30,32 L41,16 H48 L57,25 V39 L48,48 H41 Z" stroke="#fff" stroke-width="11"/>
+    <path d="M4,32 H26" stroke="#00876f" stroke-width="6.5"/>
+    <path d="M30,32 L41,16 H48 L57,25 V39 L48,48 H41 Z" stroke="#a3245e" stroke-width="6.5"/>
+  </g>
+  <rect x="22.5" y="23" width="15" height="18" rx="7.5" fill="#fff" stroke="#241a33" stroke-width="3.5"/>
+</svg>

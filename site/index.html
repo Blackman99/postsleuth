@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>postsleuth: why isn't Postfix delivering?</title>
+<meta name="description" content="Read-only Postfix diagnosis for you and your AI agent: queue, qshape, mail log deferral and bounce reasons, SPF/DKIM/DMARC/PTR checks. CLI + MCP server, one Go binary.">
+<link rel="canonical" href="https://blackman99.github.io/postsleuth/">
+<link rel="icon" href="https://blackman99.github.io/postsleuth/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#ece7f3">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="postsleuth">
+<meta property="og:url" content="https://blackman99.github.io/postsleuth/">
+<meta property="og:title" content="postsleuth: why isn't Postfix delivering?">
+<meta property="og:description" content="Queue, qshape, mail log and SPF/DKIM/DMARC/PTR diagnosis for Postfix. Read-only CLI + MCP server, one Go binary.">
+<meta property="og:image" content="https://blackman99.github.io/postsleuth/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A metro-style network map of Postfix: mail trains loop on the deferred line while gmail.com shows severe delays.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="postsleuth: why isn't Postfix delivering?">
+<meta name="twitter:description" content="Queue, qshape, mail log and SPF/DKIM/DMARC/PTR diagnosis for Postfix. Read-only CLI + MCP server.">
+<meta name="twitter:image" content="https://blackman99.github.io/postsleuth/og-image.png">
+<link rel="preload" href="fonts/jost-500.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/jost-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#lines">Skip to content</a>
+<header class="topbar">
+  <a class="brand" href="./" aria-label="postsleuth home"><img src="logo.svg" width="34" height="34" alt=""> postsleuth</a>
+  <nav aria-label="Main">
+    <a href="#status">Status</a><a href="#lines">How</a><a href="#agents">MCP</a><a href="docs/">Docs</a><a href="https://github.com/Blackman99/postsleuth">GitHub</a>
+  </nav>
+</header>
+
+<main>
+<section class="map" aria-labelledby="title">
+  <div class="map-frame">
+  <div class="map-scroll">
+  <svg id="netmap" viewBox="0 0 1200 700" role="img" aria-label="Network map of Postfix: smtpd and pickup feed cleanup, incoming and active; trains leave on the smtp and local lines; trains for gmail.com circle on the deferred loop; one returns on the dashed bounce line.">
+    <defs>
+      <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#d9d1e6"/></pattern>
+    </defs>
+    <rect width="1200" height="700" fill="url(#grid)"/>
+    <!-- casing (white under-stroke), then coloured lines -->
+    <g class="casing" fill="none" stroke="#fff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M100,180 H220 L320,280"/><path d="M100,380 H220 L320,280"/>
+      <path d="M320,280 H800"/><path d="M800,280 L890,190 H1000"/><path d="M800,280 H1000"/><path d="M800,280 L890,370 H1000"/>
+      <path d="M600,280 V160 L660,100 H1000"/>
+      <path d="M600,280 L660,340 V440 L620,480 H580 L540,440 V340 Z"/>
+      <path d="M440,280 V410"/>
+      <path d="M720,280 V520 L680,560 H360 L320,520 V280"/>
+    </g>
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path class="ln jade" d="M100,180 H220 L320,280"/><path class="ln jade" d="M100,380 H220 L320,280"/>
+      <path class="ln jade" d="M320,280 H800"/><path class="ln jade" d="M800,280 L890,190 H1000"/><path class="ln jade" d="M800,280 H1000"/><path class="ln jade" d="M800,280 L890,370 H1000"/>
+      <path class="ln jade" d="M600,280 V160 L660,100 H1000"/>
+      <path class="ln mul" d="M600,280 L660,340 V440 L620,480 H580 L540,440 V340 Z"/>
+      <path class="ln slate" d="M440,280 V410"/>
+      <path class="ln bounce" d="M720,280 V520 L680,560 H360 L320,520 V280"/>
+    </g>
+    <!-- hold buffer stop -->
+    <path d="M424,418 H456" stroke="#241a33" stroke-width="6" stroke-linecap="round"/>
+    <!-- gmail disruption marker -->
+    <g class="notice" transform="translate(890,190)">
+      <path d="M40,-14 l10,-18 l10,18 z" fill="#a3245e"/><text x="50" y="-17" text-anchor="middle" class="ntext">!</text>
+    </g>
+    <!-- trains layer -->
+    <g id="trains"></g>
+    <!-- stations -->
+    <g class="st">
+      <circle cx="100" cy="180" r="9"/><circle cx="100" cy="380" r="9"/>
+      <rect x="306" y="266" width="28" height="28" rx="14"/>
+      <circle cx="440" cy="280" r="9"/>
+      <rect x="584" y="262" width="32" height="36" rx="16"/>
+      <circle cx="720" cy="280" r="9"/>
+      <circle cx="1000" cy="100" r="9"/><circle cx="1000" cy="190" r="9" class="disrupted"/><circle cx="1000" cy="280" r="9" class="disrupted"/><circle cx="1000" cy="370" r="9"/>
+      <circle cx="600" cy="480" r="9" class="loopst"/>
+      <circle cx="720" cy="500" r="7"/>
+    </g>
+    <g class="lbl">
+      <text x="100" y="152" text-anchor="middle">smtpd</text><text x="100" y="212" text-anchor="middle" class="sub">from the internet</text>
+      <text x="100" y="352" text-anchor="middle">pickup</text><text x="100" y="412" text-anchor="middle" class="sub">sendmail, apps</text>
+      <text x="336" y="258">cleanup</text>
+      <text x="446" y="258">incoming</text>
+      <text x="600" y="240" text-anchor="end" dx="-14">active</text>
+      <text x="734" y="306">smtp</text>
+      <text x="1018" y="106">local mailboxes</text>
+      <text x="1018" y="196">gmail.com</text><text x="1018" y="216" class="sub mulc">421 4.7.28 rate limited</text>
+      <text x="1018" y="286">outlook.com</text><text x="1018" y="306" class="sub mulc">S3150 block list</text>
+      <text x="1018" y="376">fastmail.com</text><text x="1018" y="396" class="sub">good service</text>
+      <text x="466" y="424">hold</text>
+      <text x="600" y="514" text-anchor="middle" class="mulc">deferred</text>
+      <text x="600" y="534" text-anchor="middle" class="sub mulc" id="loopcount">205 waiting</text>
+      <text x="706" y="505" text-anchor="end">bounce</text>
+      <text x="520" y="584" text-anchor="middle" class="sub">returned to sender</text>
+    </g>
+  </svg>
+  </div>
+  <div class="cartouche">
+    <p class="kicker">postsleuth · Postfix delivery network</p>
+    <h1 id="title">Why isn't Postfix delivering?</h1>
+    <p class="lede">One read-only command, or one MCP call from your agent, tells you which destinations are stuck, since when, for what reason, and which DNS record is to blame.</p>
+    <ul class="key" aria-label="Map key">
+      <li><i class="k jade"></i>delivery</li><li><i class="k mul"></i>deferred loop</li><li><i class="k slate"></i>hold</li><li><i class="k bounce"></i>bounce</li>
+    </ul>
+  </div>
+  </div>
+</section>
+
+<section id="status" class="status" aria-labelledby="status-h">
+  <div class="wrap">
+    <h2 id="status-h"><span class="bar mul"></span>Line status, from your own queue</h2>
+    <p class="intro"><code>postsleuth doctor</code> reads <code>postqueue -j</code>, the mail log and DNS, groups every delay reason, classifies it and says what to do next. Here it is against a server that has been sending a little too fast.</p>
+    <ol class="board">
+      <li class="sev"><span class="lc mul"></span><b>gmail.com</b><em>Severe delays</em><span class="why">rate_limit · 150 recipients · <code>421-4.7.28 Gmail has detected an unusual rate…</code></span><span class="next">Stop flushing. Lower <code>smtp_destination_concurrency_limit</code>, add a rate delay, test one connection after 10 minutes.</span></li>
+      <li class="sev"><span class="lc mul"></span><b>outlook.com, hotmail.com</b><em>Part suspended</em><span class="why">blocklist · 34 recipients · <code>550 5.7.1 … on our block list (S3150)</code></span><span class="next">Your IP is listed. Look it up in Microsoft SNDS, fix the cause, request delisting.</span></li>
+      <li><span class="lc slate"></span><b>oldcorp.example</b><em>Minor delays</em><span class="why">timeout · 14 recipients · <code>connect to mx.oldcorp.example:25: Connection timed out</code></span><span class="next">Test <code>nc -vz mx 25</code>. If every destination times out, your provider blocks port 25: use a relayhost.</span></li>
+      <li><span class="lc slate"></span><b>acme-typo.example</b><em>Closed</em><span class="why">dns · 4 recipients · <code>Host or domain name not found</code></span><span class="next">The domain has no MX or A record. Fix the address.</span></li>
+      <li class="good"><span class="lc jade"></span><b>smallbiz.example</b><em>Good service soon</em><span class="why">greylisting · 3 recipients</span><span class="next">Normal. Postfix retries on its own.</span></li>
+      <li class="good"><span class="lc jade"></span><b>example.com DNS</b><em>1 warning</em><span class="why">SPF ok · DKIM <code>mail</code> 2048-bit · DMARC <code>p=none</code>, no <code>rua=</code> · PTR forward-confirmed</span><span class="next">Add <code>rua=</code> so you get aggregate reports.</span></li>
+    </ol>
+  </div>
+</section>
+
+<section id="lines" class="lines" aria-labelledby="lines-h">
+  <div class="wrap">
+    <h2 id="lines-h"><span class="bar jade"></span>Five stops, one line</h2>
+  </div>
+  <div class="strip" data-strip>
+    <svg class="strip-svg" viewBox="0 0 1000 40" preserveAspectRatio="none" aria-hidden="true"><path d="M20,20 H980" class="sl jade"/><rect class="strain" x="8" y="14" width="26" height="12" rx="6"/></svg>
+    <ol class="stops">
+      <li><span class="dot"></span><b>queue</b><code>postsleuth queue</code><p>Counts per queue, top domains, every delay reason grouped and classified into 17 causes with a hint.</p></li>
+      <li><span class="dot"></span><b>shape</b><code>postsleuth shape</code><p>The qshape view: which destination is backing up, and since when, in age buckets.</p></li>
+      <li><span class="dot"></span><b>log</b><code>postsleuth log --since 24h</code><p>Sent, deferred, bounced, expired, rejected per domain. Bounce causes. Domains still failing. Trace any message.</p></li>
+      <li><span class="dot"></span><b>dns</b><code>postsleuth dns</code><p>MX, SPF (10-lookup limit, is your IP allowed), DKIM keys, DMARC, PTR with forward confirmation.</p></li>
+      <li><span class="dot"></span><b>doctor</b><code>postsleuth doctor</code><p>All of it in one report with next steps. Exit code 1 when something is wrong.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="platform" aria-labelledby="plat-h">
+  <div class="wrap two">
+    <div>
+      <h2 id="plat-h"><span class="bar mul"></span>Who is waiting on the platform</h2>
+      <p>The qshape matrix of the deferred queue: rows are destination domains, columns are minutes in the queue. gmail.com piled up over the last five hours. oldcorp.example has been failing for two days.</p>
+      <p class="mono-note"><code>postsleuth shape deferred</code> · <code>--by sender</code> finds the account that is spamming.</p>
+    </div>
+    <div class="matrix" id="matrix" role="img" aria-label="Deferred queue by domain and age: gmail.com 141 messages mostly 40 to 320 minutes old; outlook.com 23 spread over 160 minutes to 2 days; oldcorp.example 14, mostly older than 640 minutes."></div>
+  </div>
+</section>
+
+<section id="agents" class="agents" aria-labelledby="ag-h">
+  <div class="wrap">
+    <h2 id="ag-h"><span class="bar jade"></span>Change here for your AI agent</h2>
+    <p class="intro"><code>postsleuth mcp</code> is a Model Context Protocol server on stdio. Ask Claude, Cursor or any MCP client "why is mail to Gmail stuck?" and it calls the same tools you would run by hand. Run it on the mail host, through SSH, or next to a Postfix container.</p>
+  </div>
+  <div class="strip interchange" data-strip>
+    <svg class="strip-svg" viewBox="0 0 1000 40" preserveAspectRatio="none" aria-hidden="true"><path d="M20,20 H980" class="sl jade"/><rect class="strain" x="8" y="14" width="26" height="12" rx="6"/></svg>
+    <ol class="stops tools">
+      <li><span class="dot"></span><b>postfix_doctor</b></li>
+      <li><span class="dot"></span><b>postfix_queue_summary</b></li>
+      <li><span class="dot"></span><b>postfix_queue_list</b></li>
+      <li><span class="dot"></span><b>postfix_queue_shape</b></li>
+      <li><span class="dot"></span><b>postfix_log_stats</b></li>
+      <li><span class="dot"></span><b>postfix_log_trace</b></li>
+      <li><span class="dot"></span><b>mail_dns_check</b></li>
+      <li><span class="dot"></span><b>postfix_config</b></li>
+    </ol>
+  </div>
+  <div class="wrap cfgs">
+<pre class="cfg"><span class="c">// on the mail server</span>
+{"mcpServers": {"postsleuth": {
+  "command": "postsleuth", "args": ["mcp"]}}}</pre>
+<pre class="cfg"><span class="c">// from your laptop, over SSH</span>
+{"mcpServers": {"postsleuth": {
+  "command": "ssh", "args": ["mx1", "postsleuth", "mcp"]}}}</pre>
+<pre class="cfg"><span class="c">// Postfix in Docker (docker-mailserver, mailcow)</span>
+{"mcpServers": {"postsleuth": {"command": "postsleuth",
+  "args": ["mcp", "--wrap", "docker exec -i mailserver"]}}}</pre>
+  </div>
+</section>
+
+<section class="points" aria-labelledby="pt-h">
+  <div class="wrap two">
+    <div>
+      <h2 id="pt-h"><span class="bar slate"></span>The siding is locked</h2>
+      <p>Every tool reads. Flush, requeue, hold, release and delete live on a siding that stays locked unless you start postsleuth with <code>--allow-mutations</code>. Your agent cannot unlock it. Even when it is open, each change over MCP needs <code>confirm=true</code>, takes explicit queue IDs, and <code>ALL</code> is refused.</p>
+      <button type="button" id="lever" class="lever" aria-pressed="false">--allow-mutations <span>off</span></button>
+    </div>
+    <svg id="pointsvg" viewBox="0 0 520 220" aria-label="Points diagram: the read-only main line continues; the siding with flush, requeue, hold, release and delete is locked." role="img">
+      <path d="M20,70 H500" class="pl jade"/>
+      <path d="M200,70 L260,130 H470" class="pl slate" id="siding"/>
+      <path d="M470,116 V144" stroke="#241a33" stroke-width="6" stroke-linecap="round"/>
+      <line id="blade" x1="170" y1="70" x2="214" y2="70" stroke="#241a33" stroke-width="6" stroke-linecap="round"/>
+      <text x="500" y="50" text-anchor="end" class="pt">read-only tools</text>
+      <text x="200" y="168" class="pt sm">flush · requeue · hold · release · delete</text>
+      <g id="lock" transform="translate(300,104)"><rect x="-11" y="0" width="22" height="18" rx="3" fill="#241a33"/><path id="shackle" d="M-6,0 V-6 a6,6 0 0 1 12,0 V0" fill="none" stroke="#241a33" stroke-width="3"/></g>
+    </svg>
+  </div>
+</section>
+
+<section class="ride" aria-labelledby="ride-h">
+  <div class="wrap">
+    <h2 id="ride-h"><span class="bar jade"></span>Board here</h2>
+    <div class="nameboard">
+      <span class="nb-line"></span>
+<pre><span class="p">$</span> go install github.com/Blackman99/postsleuth/cmd/postsleuth@latest
+<span class="p">$</span> postsleuth doctor</pre>
+    </div>
+    <p>Or download one static binary for Linux, macOS or Windows from <a href="https://github.com/Blackman99/postsleuth/releases/latest">Releases</a>. Needs read access to the mail log (the <code>adm</code> group on Debian/Ubuntu). <code>postqueue -j</code> works as any user. CI tests every build against a real Postfix in Docker.</p>
+    <p class="links"><a href="docs/">Read the docs</a> · <a href="https://github.com/Blackman99/postsleuth">Source on GitHub</a> · MIT</p>
+  </div>
+</section>
+</main>
+<footer><div class="wrap">Map not to scale. postsleuth is not affiliated with the Postfix project.</div></footer>
+<script src="app.js" defer></script>
+</body>
+</html>

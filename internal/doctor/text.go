@@ -63,7 +63,13 @@ func WriteQueue(w io.Writer, s Style, q queue.Summary) {
 		}
 		fmt.Fprintf(w, "  %s %4d  %-17s %s\n", mark, r.Count, r.Category, strings.Join(r.Domains, ", "))
 		fmt.Fprintf(w, "         %s\n", s.Dim(trim(r.Reason, 96)))
-		fmt.Fprintf(w, "         → %s\n", trim(r.Hint, 110))
+		for i, l := range wrap(r.Hint, 100) {
+			lead := "         → "
+			if i > 0 {
+				lead = "           "
+			}
+			fmt.Fprintf(w, "%s%s\n", lead, l)
+		}
 	}
 }
 
@@ -121,6 +127,26 @@ func WriteDNS(w io.Writer, s Style, r dnsauth.Report) {
 		}
 		fmt.Fprintf(w, "  %s %-6s %s%s\n", s.Mark(c.Status), c.Name, rec, trim(c.Message, 120))
 	}
+}
+
+func wrap(t string, n int) []string {
+	var out []string
+	line := ""
+	for _, w := range strings.Fields(t) {
+		if line != "" && len([]rune(line))+1+len([]rune(w)) > n {
+			out = append(out, line)
+			line = w
+			continue
+		}
+		if line != "" {
+			line += " "
+		}
+		line += w
+	}
+	if line != "" {
+		out = append(out, line)
+	}
+	return out
 }
 
 func trim(t string, n int) string {

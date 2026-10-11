@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>postsleuth docs: Postfix queue, log and DNS diagnosis (CLI + MCP)</title>
+<meta name="description" content="postsleuth documentation: install, doctor, queue, qshape, mail log, trace, SPF/DKIM/DMARC/PTR checks, MCP server setup, failure categories, safety model.">
+<link rel="canonical" href="https://blackman99.github.io/postsleuth/docs/">
+<link rel="icon" href="https://blackman99.github.io/postsleuth/favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website"><meta property="og:site_name" content="postsleuth">
+<meta property="og:url" content="https://blackman99.github.io/postsleuth/docs/">
+<meta property="og:title" content="postsleuth docs"><meta property="og:description" content="Install, commands, MCP setup, failure categories and the safety model.">
+<meta property="og:image" content="https://blackman99.github.io/postsleuth/og-image.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="postsleuth network map of Postfix">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://blackman99.github.io/postsleuth/og-image.png">
+<meta name="twitter:title" content="postsleuth docs"><meta name="twitter:description" content="Install, commands, MCP setup, failure categories and the safety model.">
+<link rel="preload" href="../fonts/jost-500.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../style.css"><link rel="stylesheet" href="docs.css">
+</head><body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><a class="brand" href="../"><img src="../logo.svg" width="34" height="34" alt=""> postsleuth</a>
+<nav aria-label="Main"><a href="../">Home</a><a href="#mcp">MCP</a><a href="https://github.com/Blackman99/postsleuth">GitHub</a></nav></header>
+<div class="docs">
+<nav class="route" aria-label="Contents"><ol>
+<li><a href="#install">Install</a></li><li><a href="#quick">Quick start</a></li><li><a href="#doctor">doctor</a></li><li><a href="#queue">queue &amp; shape</a></li>
+<li><a href="#log">log &amp; trace</a></li><li><a href="#dns">dns</a></li><li><a href="#mcp">MCP server</a></li><li><a href="#tools">Tool reference</a></li>
+<li><a href="#categories">Failure categories</a></li><li><a href="#sources">Where data comes from</a></li><li><a href="#safety">Changing the queue</a></li><li><a href="#scripts">JSON &amp; exit codes</a></li><li><a href="#faq">Troubleshooting</a></li>
+</ol></nav>
+<main id="content" class="doc">
+<h1>postsleuth docs</h1>
+<p class="lead">postsleuth answers one question: <strong>why isn't this Postfix server delivering mail?</strong> It reads the queue, the mail log and DNS, never changes anything unless you opt in, and speaks MCP so an AI agent can do the digging for you.</p>
+
+<h2 id="install">Install</h2>
+<pre><code>go install github.com/Blackman99/postsleuth/cmd/postsleuth@latest</code></pre>
+<p>Or download a static binary (linux, darwin, windows; amd64 and arm64) from <a href="https://github.com/Blackman99/postsleuth/releases/latest">GitHub Releases</a>, unpack it, and put <code>postsleuth</code> on your <code>PATH</code>. It has no runtime dependencies. On the mail host it calls the Postfix tools that are already there: <code>postqueue</code>, <code>postconf</code> and, only when you allow it, <code>postsuper</code>.</p>
+
+<h2 id="quick">Quick start</h2>
+<pre><code>postsleuth doctor                 # everything, with next steps
+postsleuth queue                  # what is stuck and why
+postsleuth shape                  # which destination, since when
+postsleuth log --since 24h        # what happened
+postsleuth trace bob@example.org  # one message, start to finish
+postsleuth dns example.com --ip 203.0.113.7</code></pre>
+<p>Run it as a user that can read the mail log. On Debian and Ubuntu that is the <code>adm</code> group (<code>sudo usermod -aG adm $USER</code>). <code>postqueue -j</code> is allowed for every user by default (<code>authorized_mailq_users</code>).</p>
+
+<h2 id="doctor">doctor</h2>
+<p><code>postsleuth doctor</code> combines the queue summary, a qshape of the deferred queue, log outcomes for the window (<code>--since</code>, default 24h) and the DNS checks for your sending domain. It ends with a list of findings and exits <code>1</code> if any is a problem.</p>
+<pre><code>postsleuth doctor [--since 24h] [--domain example.com] [--ip 203.0.113.7] [--selector mail] [--no-dns] [--no-log] [--json]</code></pre>
+<p>The sending domain defaults to <code>myorigin</code> (or <code>mydomain</code>). The sending IP defaults to <code>smtp_bind_address</code>, else the public A/AAAA records of <code>myhostname</code> when there is no <code>relayhost</code>. DKIM selectors are read from opendkim's "DKIM-Signature field added (s=…, d=…)" log lines, else common names are probed.</p>
+
+<h2 id="queue">queue &amp; shape</h2>
+<pre><code>postsleuth queue [--queue deferred] [--domain .outlook.com] [--sender billing@] [--reason "4.7.28"] [--category rate_limit] [--min-age 2h]
+postsleuth queue --list --category timeout --limit 20
+postsleuth shape [deferred|active|hold|incoming|all] [--by sender] [--top 20]</code></pre>
+<p>The summary groups recipients by normalised delay reason (addresses, IPs and tracking IDs are stripped so identical failures group together), classifies each group, and lists the domains it affects. <code>--domain</code> with a leading dot also matches subdomains.</p>
+<p><code>shape</code> is the <a href="https://www.postfix.org/QSHAPE_README.html">qshape</a> view: rows are domains, columns are message age in minutes (5, 10, 20, … 1280, 1280+), each message counted once per domain. A row that fills the left columns is a fresh problem; one that fills the right is old. <code>--by sender</code> is how you find the compromised account behind a spam run.</p>
+
+<h2 id="log">log &amp; trace</h2>
+<pre><code>postsleuth log [--since 1h|24h|7d|all] [--domain gmail.com] [--top 15]
+postsleuth trace 4F2A1C3B9
+postsleuth trace bob@example.org --since 7d</code></pre>
+<p><code>log</code> reports totals (received, sent, deferred attempts, bounced, expired, smtpd rejects), per-domain outcomes, domains whose latest attempt was a deferral ("still failing"), grouped deferral reasons, bounce causes and reject reasons, each with a category and hint.</p>
+<p><code>trace</code> prints every line for each matching queue ID (smtpd, pickup, cleanup, qmgr, smtp/local, bounce) and its final status. Matching by address also pulls in the non-delivery notice Postfix generated for a bounce.</p>
+
+<h2 id="dns">dns</h2>
+<pre><code>postsleuth dns [DOMAIN] [--ip 203.0.113.7] [--selector mail] [--helo mail.example.com] [--resolver 1.1.1.1]</code></pre>
+<table><thead><tr><th>Check</th><th>What fails it</th></tr></thead><tbody>
+<tr><td><code>mx</code></td><td>no MX (warn), null MX</td></tr>
+<tr><td><code>spf</code></td><td>missing, more than one record, more than 10 DNS lookups (counted through includes), <code>+all</code>; <code>?all</code> or no <code>all</code> warn</td></tr>
+<tr><td><code>spf-ip</code></td><td>the sending IP does not match (ip4/ip6/a/mx/include/redirect are evaluated; ptr/exists are not)</td></tr>
+<tr><td><code>dkim</code></td><td>no key at <code>selector._domainkey</code>, revoked key, RSA under 1024 bits; 1024 bits or <code>t=y</code> warn</td></tr>
+<tr><td><code>dmarc</code></td><td>missing or duplicated record, invalid <code>p=</code>; no <code>rua=</code> warns</td></tr>
+<tr><td><code>ptr</code></td><td>no PTR, PTR that does not resolve back to the IP (FCrDNS); PTR name different from <code>myhostname</code> warns</td></tr>
+</tbody></table>
+
+<h2 id="mcp">MCP server</h2>
+<p><code>postsleuth mcp</code> speaks the Model Context Protocol over stdio. Every tool is read-only and annotated as such.</p>
+<h3>On the mail host (Claude Code, Cursor, Claude Desktop…)</h3>
+<pre><code>claude mcp add postsleuth -- postsleuth mcp</code></pre>
+<pre><code>{"mcpServers": {"postsleuth": {"command": "postsleuth", "args": ["mcp"]}}}</code></pre>
+<h3>From your laptop over SSH</h3>
+<pre><code>{"mcpServers": {"postsleuth": {"command": "ssh", "args": ["-T", "mx1.example.com", "postsleuth", "mcp"]}}}</code></pre>
+<p>Use an SSH key and a user in the <code>adm</code> group. Nothing listens on the network.</p>
+<h3>Postfix in Docker (docker-mailserver, mailcow, …)</h3>
+<pre><code>{"mcpServers": {"postsleuth": {"command": "postsleuth",
+  "args": ["mcp", "--wrap", "docker exec -i mailserver"]}}}</code></pre>
+<p><code>--wrap</code> prefixes every Postfix command, and also reads the container's log (<code>maillog_file</code>, <code>/var/log/mail.log</code>, <code>/var/log/mail/mail.log</code>…) through it. For mailcow, the Postfix container is usually <code>mailcowdockerized-postfix-mailcow-1</code>, and the log is easiest via <code>--log-cmd "docker logs mailcowdockerized-postfix-mailcow-1"</code>.</p>
+<p>Prompts that work well: "Why is mail to Gmail stuck?", "Which sender filled the deferred queue today?", "Did bob@example.org's message arrive?", "Is our SPF/DKIM/DMARC set up right for this IP?"</p>
+
+<h2 id="tools">Tool reference</h2>
+<p>Each tool returns structured JSON (with an output schema) plus the same JSON as text.</p>
+<table class="tools"><thead><tr><th>Tool</th><th>What it does</th><th>Arguments</th></tr></thead><tbody>
+<tr><td><code>postfix_doctor</code></td><td>One-call diagnosis of a Postfix server: queue summary, qshape of the deferred queue, log outcomes for the window, DNS authentication checks, and a list of findings with next steps.</td><td class='args'><code>since</code> log window (default 24h)<br><code>domain</code> sending domain for DNS checks<br><code>ips</code> sending IPs<br><code>skip_dns</code> do not run DNS checks</td></tr>
+<tr><td><code>postfix_queue_summary</code></td><td>Summarise the Postfix queue (postqueue -j): counts per queue, top recipient and sender domains, delay reasons grouped and classified with hints, oldest message.</td><td class='args'><code>queue</code> only this queue: active, deferred, hold, incoming, maildrop or corrupt (default all)<br><code>top</code> max entries per list (default 10)</td></tr>
+<tr><td><code>postfix_queue_list</code></td><td>List queued messages (queue ID, queue, arrival time, size, sender, recipients with delay reasons), filtered by queue, recipient domain, sender, reason text, reason category or minimum age.</td><td class='args'><code>queue</code> queue name filter, e.g. deferred<br><code>domain</code> recipient domain; a leading dot matches subdomains too<br><code>sender</code> substring of the envelope sender<br><code>reason_contains</code> case-insensitive substring of the delay reason<br><code>category</code> reason category id, e.g. rate_limit, auth, ptr, timeout<br><code>min_age</code> only messages older than this, e.g. 2h or 3d<br><code>limit</code> max messages returned (default 50)</td></tr>
+<tr><td><code>postfix_queue_shape</code></td><td>qshape-style matrix of a queue: rows are recipient (or sender) domains, columns are message age buckets in minutes (5,10,20,...,1280+). Shows which destination is backing up and since when.</td><td class='args'><code>queue</code> queue to shape (default deferred; &#x27;all&#x27; for every queue)<br><code>by</code> recipient (default) or sender domain<br><code>top</code> max domains (default 20)</td></tr>
+<tr><td><code>postfix_log_stats</code></td><td>Aggregate the Postfix mail log over a time window: totals (received, sent, deferred attempts, bounced, expired, smtpd rejects), per-domain outcomes, domains still failing, grouped deferral reasons and bounce causes with category and hint, and DKIM selectors seen in signing logs.</td><td class='args'><code>since</code> time window, e.g. 1h, 24h (default), 7d, or all<br><code>domain</code> only this recipient domain (leading dot = include subdomains)<br><code>top</code> max entries per list (default 15)</td></tr>
+<tr><td><code>postfix_log_trace</code></td><td>Follow one message through the log by queue ID or email address: every line for each matching queue ID (smtpd, cleanup, qmgr, smtp/local, bounce notifications) and its final status.</td><td class='args'><code>query</code> a queue ID (e.g. 4F2A1C3B9) or an email address<br><code>since</code> time window (default 7d)<br><code>limit</code> max messages (default 20, newest kept)</td></tr>
+<tr><td><code>mail_dns_check</code></td><td>Check the DNS records receivers use to accept or reject your mail: MX, SPF (syntax, 10-lookup limit, whether the sending IP is authorised), DKIM selector keys (presence, key size), DMARC policy and reporting, PTR with forward confirmation (FCrDNS) against myhostname.</td><td class='args'><code>domain</code> sending domain (default: myorigin/mydomain from postconf)<br><code>ips</code> sending IPs to check SPF authorisation and PTR/FCrDNS for (default: smtp_bind_address or myhostname&#x27;s public A/AAAA)<br><code>selectors</code> DKIM selectors (default: taken from opendkim log lines, else common names are probed)</td></tr>
+<tr><td><code>postfix_config</code></td><td>Delivery-relevant non-default Postfix settings from postconf -n (relayhost, TLS policy, SASL, concurrency/rate limits, queue lifetimes, domains, milters). Secret-looking values are redacted.</td><td class='args'>none</td></tr>
+<tr><td><code>postfix_reason_categories</code></td><td>List the failure categories postsleuth assigns to delay/bounce reasons, with the hint for each.</td><td class='args'>none</td></tr>
+<tr><td colspan="3" class="sep">Only with <code>--allow-mutations</code>, each also needs <code>confirm: true</code>:</td></tr>
+<tr><td><code>postfix_queue_flush</code></td><td>Retry now: queue IDs (<code>postqueue -i</code>), one site (<code>postqueue -s</code>, needs <code>fast_flush_domains</code>), or everything (<code>postqueue -f</code>).</td><td class="args"><code>queue_ids</code>, <code>site</code>, <code>all</code>, <code>confirm</code></td></tr>
+<tr><td><code>postfix_queue_requeue</code></td><td><code>postsuper -r</code> by queue ID.</td><td class="args"><code>queue_ids</code>, <code>confirm</code></td></tr>
+<tr><td><code>postfix_queue_hold</code> / <code>_release</code></td><td><code>postsuper -h</code> / <code>-H</code> by queue ID.</td><td class="args"><code>queue_ids</code>, <code>confirm</code></td></tr>
+<tr><td><code>postfix_queue_delete</code></td><td><code>postsuper -d</code> by queue ID. Annotated destructive. <code>ALL</code> is refused.</td><td class="args"><code>queue_ids</code>, <code>confirm</code></td></tr>
+</tbody></table>
+
+<h2 id="categories">Failure categories</h2>
+<p>Every delay reason, bounce text and reject is classified by its SMTP enhanced status code and wording. First match wins, in this order:</p>
+<table><thead><tr><th>Category</th><th>Hint postsleuth gives</th></tr></thead><tbody>
+<tr><td><code>loop</code></td><td>Postfix thinks it is the destination: check mydestination, myhostname and virtual domains, or the MX points back at this host.</td></tr>
+<tr><td><code>relay_denied</code></td><td>The next hop refuses to relay for you: check relayhost, SASL credentials, or the recipient domain is not hosted there.</td></tr>
+<tr><td><code>sasl_auth</code></td><td>Login to the relay host failed: check smtp_sasl_password_maps (and run postmap after editing it).</td></tr>
+<tr><td><code>blocklist</code></td><td>The receiver rejects your IP or domain because of a blocklist entry: look the IP up (Spamhaus, Microsoft SNDS) and request delisting after fixing the cause.</td></tr>
+<tr><td><code>ptr</code></td><td>The receiver requires reverse DNS: set a PTR for your sending IP that resolves back to the same IP (FCrDNS), ideally matching myhostname.</td></tr>
+<tr><td><code>auth</code></td><td>The receiver could not authenticate your mail: check SPF covers this IP, DKIM signs with a published selector, and DMARC aligns (postsleuth dns DOMAIN).</td></tr>
+<tr><td><code>greylisting</code></td><td>Greylisting: normal, Postfix retries automatically. Only a problem if it persists for hours.</td></tr>
+<tr><td><code>rate_limit</code></td><td>The receiver is throttling you: lower smtp_destination_concurrency_limit / add smtp_destination_rate_delay for that domain, and check your sending reputation.</td></tr>
+<tr><td><code>recipient_unknown</code></td><td>The mailbox does not exist: fix or remove the address (check for typos).</td></tr>
+<tr><td><code>mailbox_full</code></td><td>The recipient&#x27;s mailbox is full: nothing to fix on your side; the sender should use another channel.</td></tr>
+<tr><td><code>size</code></td><td>The message is larger than the receiver accepts.</td></tr>
+<tr><td><code>tls</code></td><td>TLS negotiation failed: check smtp_tls_security_level / smtp_tls_policy_maps for that destination and the system CA bundle (smtp_tls_CAfile).</td></tr>
+<tr><td><code>dns</code></td><td>DNS lookup for the destination failed: check the domain exists and has MX/A records, and that this server&#x27;s resolver works (dig MX domain).</td></tr>
+<tr><td><code>timeout</code></td><td>Connections to port 25 time out: many providers block outbound port 25, so test with nc -vz MX 25 and use a relayhost if blocked.</td></tr>
+<tr><td><code>connect</code></td><td>Could not connect to the destination: the remote server is down or unreachable, or outbound port 25 is blocked.</td></tr>
+<tr><td><code>policy</code></td><td>The receiver&#x27;s policy rejected the message (spam or content filter). Read the full reply text; check authentication and the message content.</td></tr>
+<tr><td><code>other</code></td><td>Read the full reply text from the remote server.</td></tr>
+</tbody></table>
+<p>Seen a reply that lands in <code>other</code>? Open an issue with the (anonymised) text.</p>
+
+<h2 id="sources">Where data comes from</h2>
+<ul>
+<li><strong>Queue:</strong> <code>postqueue -j</code> (Postfix 3.1+). Or a saved snapshot: <code>--queue-file queue.json</code> (<code>-</code> for stdin), handy for analysing a customer's server offline.</li>
+<li><strong>Log:</strong> <code>--log FILE</code> (repeatable, <code>.gz</code> fine, <code>-</code> for stdin), or <code>--log-cmd "journalctl -u postfix@- -o short-iso"</code>. Without either: Postfix's <code>maillog_file</code>, then <code>/var/log/mail.log</code>, <code>/var/log/maillog</code>, <code>/var/log/mail/mail.log</code>, <code>/var/log/postfix.log</code>, then journald (mail facility). Traditional syslog, RFC 3339 and journald <code>short-iso</code> timestamps are understood; multi-instance names like <code>postfix-out/smtp</code> too.</li>
+<li><strong>Config:</strong> <code>postconf -n</code> and <code>postconf -x</code>. Parameters whose names look like secrets are redacted.</li>
+<li><strong>DNS:</strong> the system resolver, or <code>--resolver IP</code>.</li>
+</ul>
+
+<h2 id="safety">Changing the queue</h2>
+<p>postsleuth is read-only unless the process was started with <code>--allow-mutations</code>. That flag is chosen by whoever configures the MCP server, not by the agent, so a model cannot grant itself write access. When it is set:</p>
+<ul>
+<li>the CLI accepts <code>flush</code>, <code>requeue</code>, <code>hold</code>, <code>release</code> and <code>delete</code>;</li>
+<li>the MCP server adds the five tools above, annotated as non-read-only (delete as destructive), and each refuses to run without <code>confirm: true</code>;</li>
+<li>operations take explicit queue IDs (validated; <code>ALL</code> and anything starting with <code>-</code> is rejected). Commands are executed directly, never through a shell.</li>
+</ul>
+<p>Before flushing a destination that is rate-limiting you (Gmail <code>4.7.28</code>), don't: a burst of retries makes it worse. Fix the cause, wait, and let Postfix's backoff work.</p>
+
+<h2 id="scripts">JSON &amp; exit codes</h2>
+<p>Every command takes <code>--json</code>. Exit codes: <code>0</code> fine · <code>1</code> problems found (<code>doctor</code>, or a failing check in <code>dns</code>) · <code>2</code> error or refused. <code>NO_COLOR=1</code> or <code>--no-color</code> disables colour.</p>
+<pre><code>postsleuth doctor --json | jq '.findings[] | select(.severity=="problem") | .title'</code></pre>
+
+<h2 id="faq">Troubleshooting</h2>
+<dl>
+<dt>"permission denied reading /var/log/mail.log"</dt><dd>Add the user to <code>adm</code>, run with sudo, or pass <code>--log-cmd</code>.</dd>
+<dt>Every DNS record is "missing"</dt><dd>Your resolver is filtering or faking answers (some sandboxes and VPNs do). Try <code>--resolver 1.1.1.1</code>.</dd>
+<dt>Log shows nothing for the last hour</dt><dd>Check the clock and time zone of the log; traditional syslog lines carry no year or zone and are read in local time.</dd>
+<dt>"Flush service is not configured for destination"</dt><dd><code>postqueue -s</code> only works for domains in <code>fast_flush_domains</code>. Flush by queue ID instead.</dd>
+</dl>
+<p class="foot">Source and issues: <a href="https://github.com/Blackman99/postsleuth">github.com/Blackman99/postsleuth</a> · <a href="https://github.com/Blackman99/postsleuth/blob/main/GOAL.md">GOAL.md</a> · <a href="https://github.com/Blackman99/postsleuth/blob/main/ROADMAP.md">ROADMAP.md</a> · MIT</p>
+</main></div>
+<footer><div class="wrap">Map not to scale. postsleuth is not affiliated with the Postfix project.</div></footer>
+</body></html>
