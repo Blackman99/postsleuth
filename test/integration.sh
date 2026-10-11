@@ -61,6 +61,7 @@ echo "$G" | jq -e '.stats.totals.sent >= 1 and .stats.totals.bounced >= 1 and .s
 echo "$G" | jq -e '[.stats.bounce_causes[] | select(.category=="recipient_unknown")] | length == 1' >/dev/null || fail "bounce cause: $(echo "$G" | jq .stats.bounce_causes)"
 echo "$G" | jq -e '[.stats.deferral_reasons[] | select(.category=="rate_limit")][0].count >= 2' >/dev/null || fail "deferral reasons: $(echo "$G" | jq .stats.deferral_reasons)"
 echo "$G" | jq -e '[.stats.still_failing[].domain] | index("retry.test") != null' >/dev/null || fail "still failing"
+echo "$G" | jq -e '[(.stats.bounce_causes + .stats.deferral_reasons)[] | select(.category=="dns")] | length >= 1' >/dev/null || fail "dns category: $(echo "$G" | jq .stats.bounce_causes)"
 pass "log stats from real maillog_file"
 
 T=$(PS trace ghost@bounce.test --json)

@@ -17,6 +17,7 @@ RUN postconf -e \
       smtp_connect_timeout=3s \
       transport_maps=texthash:/etc/postfix/transport \
       queue_run_delay=300s minimal_backoff_time=300s \
+      default_transport=smtp relay_transport=relay \
  && postconf -F '*/*/chroot = n' \
  && newaliases
 CMD ["postfix", "start-fg"]
