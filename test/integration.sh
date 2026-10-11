@@ -36,6 +36,7 @@ for i in $(seq 1 40); do
   sleep 2
 done
 docker exec "$C" postqueue -p || true
+echo "--- postfix.log ---"; docker exec "$C" cat /var/log/postfix.log; echo "---"
 
 # --- queue (postqueue -j through --wrap) ---
 Q=$(PS queue --json)
@@ -91,7 +92,7 @@ PS hold "$ID" --allow-mutations >/dev/null
 PS queue --queue hold --list --json | jq -e --arg id "$ID" 'map(.queue_id) | index($id) != null' >/dev/null || fail "hold"
 PS release "$ID" --allow-mutations >/dev/null
 PS requeue "$ID" --allow-mutations >/dev/null
-PS flush --site retry.test --allow-mutations >/dev/null
+PS flush "$ID" --allow-mutations >/dev/null
 PS delete "$ID" --allow-mutations >/dev/null
 sleep 1
 PS queue --list --json | jq -e --arg id "$ID" 'map(.queue_id) | index($id) == null' >/dev/null || fail "delete with flag"
