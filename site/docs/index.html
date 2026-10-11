@@ -16,7 +16,7 @@
 </head><body>
 <a class="skip" href="#content">Skip to content</a>
 <header class="topbar"><a class="brand" href="../"><img src="../logo.svg" width="34" height="34" alt=""> postsleuth</a>
-<nav aria-label="Main"><a href="../">Home</a><a href="#mcp">MCP</a><a href="https://github.com/Blackman99/postsleuth">GitHub</a></nav></header>
+<nav aria-label="Main"><a href="../">Home</a><a href="#mcp">MCP</a><a href="../blog/">Blog</a><a href="https://github.com/Blackman99/postsleuth">GitHub</a></nav></header>
 <div class="docs">
 <nav class="route" aria-label="Contents"><ol>
 <li><a href="#install">Install</a></li><li><a href="#quick">Quick start</a></li><li><a href="#doctor">doctor</a></li><li><a href="#queue">queue &amp; shape</a></li>
@@ -39,6 +39,7 @@ postsleuth log --since 24h        # what happened
 postsleuth trace bob@example.org  # one message, start to finish
 postsleuth dns example.com --ip 203.0.113.7</code></pre>
 <p>Run it as a user that can read the mail log. On Debian and Ubuntu that is the <code>adm</code> group (<code>sudo usermod -aG adm $USER</code>). <code>postqueue -j</code> is allowed for every user by default (<code>authorized_mailq_users</code>).</p>
+<p>For a worked example with real output, read <a href="../blog/stuck-postfix-mail.html">Diagnosing stuck mail with postsleuth</a> (<a href="../blog/stuck-postfix-mail.zh.html" lang="zh-CN">中文版</a>).</p>
 
 <h2 id="doctor">doctor</h2>
 <p><code>postsleuth doctor</code> combines the queue summary, a qshape of the deferred queue, log outcomes for the window (<code>--since</code>, default 24h) and the DNS checks for your sending domain. It ends with a list of findings and exits <code>1</code> if any is a problem.</p>

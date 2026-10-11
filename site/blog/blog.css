@@ -1,0 +1,12 @@
+/* blog: reuses the docs strip-map layout; CJK falls back to system fonts */
+html[lang="zh-CN"] body{font-family:Jost,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",system-ui,sans-serif;line-height:1.75}
+.doc .meta{color:#4a4060;font-size:15px;margin:0 0 18px}
+.doc .meta a{margin-left:10px}
+.doc pre.out{border-left-color:var(--mul)}
+.doc figure{margin:18px 0}
+.doc figcaption{font-size:14px;color:#4a4060;margin-top:6px;max-width:780px}
+.doc .note{max-width:780px;background:#fff;border:2px solid var(--ink);border-left:10px solid var(--slate);padding:12px 16px;font-size:16px}
+.posts{list-style:none;margin:0;padding:0;border-top:2px solid var(--ink);max-width:780px}
+.posts li{padding:16px 0;border-bottom:1px solid var(--line)}
+.posts a{font-weight:700;font-size:20px}
+.posts p{margin:4px 0 0}

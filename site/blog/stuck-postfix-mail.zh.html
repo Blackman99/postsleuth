@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Postfix 为什么发不出信？用 postsleuth 排查卡住的邮件</title>
+<meta name="description" content="附真实输出的排障实录：按延迟原因归并 Postfix 队列、看 qshape、汇总邮件日志、追踪单封邮件，并在 Docker 里的真实 Postfix 上运行 doctor。">
+<link rel="canonical" href="https://blackman99.github.io/postsleuth/blog/stuck-postfix-mail.zh.html">
+<link rel="alternate" hreflang="zh-CN" href="https://blackman99.github.io/postsleuth/blog/stuck-postfix-mail.zh.html"><link rel="alternate" hreflang="en" href="https://blackman99.github.io/postsleuth/blog/stuck-postfix-mail.html">
+<link rel="icon" href="https://blackman99.github.io/postsleuth/favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="article"><meta property="og:site_name" content="postsleuth">
+<meta property="og:url" content="https://blackman99.github.io/postsleuth/blog/stuck-postfix-mail.zh.html">
+<meta property="og:title" content="Postfix 为什么发不出信？用 postsleuth 排查卡住的邮件"><meta property="og:description" content="附真实输出的排障实录：按延迟原因归并 Postfix 队列、看 qshape、汇总邮件日志、追踪单封邮件，并在 Docker 里的真实 Postfix 上运行 doctor。">
+<meta property="og:image" content="https://blackman99.github.io/postsleuth/og-image.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="postsleuth network map of Postfix">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://blackman99.github.io/postsleuth/og-image.png">
+<meta name="twitter:title" content="Postfix 为什么发不出信？用 postsleuth 排查卡住的邮件"><meta name="twitter:description" content="附真实输出的排障实录：按延迟原因归并 Postfix 队列、看 qshape、汇总邮件日志、追踪单封邮件，并在 Docker 里的真实 Postfix 上运行 doctor。">
+<link rel="preload" href="../fonts/jost-500.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../style.css"><link rel="stylesheet" href="../docs/docs.css"><link rel="stylesheet" href="blog.css">
+</head><body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="topbar"><a class="brand" href="../"><img src="../logo.svg" width="34" height="34" alt=""> postsleuth</a>
+<nav aria-label="Main"><a href="../">首页</a><a href="./">文章</a><a href="../docs/">文档</a><a href="https://github.com/Blackman99/postsleuth">GitHub</a></nav></header>
+<div class="docs">
+<nav class="route" aria-label="目录"><ol><li><a href="#loop">常见的排查流程</a></li><li><a href="#queue">1. 按原因归并队列</a></li><li><a href="#shape">2. 从什么时候开始</a></li><li><a href="#log">3. 日志里发生了什么</a></li><li><a href="#trace">4. 追踪单封邮件</a></li><li><a href="#doctor">5. 一次看全</a></li><li><a href="#real">在真实 Postfix 上</a></li><li><a href="#act">接下来怎么处理</a></li><li><a href="#agents">给 AI 助手用</a></li></ol></nav>
+<main id="content" class="doc">
+<article>
+<h1>Postfix 为什么发不出信？用 postsleuth 排查卡住的邮件</h1>
+<p class="meta">2026-10-12 · postsleuth v0.1.0 <a href="stuck-postfix-mail.html" hreflang="en" lang="en">English</a></p>
+<p class="lead">队列越积越多，用户说发到 Gmail 的信"没收到"，<code>mailq</code> 打出来一大屏。本文演示如何用 <a href="https://github.com/Blackman99/postsleuth">postsleuth</a>（一个只读的 Postfix 诊断 CLI，同时是 MCP 服务器）从这一大屏里找到原因和下一步。</p>
+<p class="note">输出来源说明：第 1–5 节是 postsleuth v0.1.0 在仓库自带样例数据上的真实运行结果（<code>testdata/queue.json</code> 和 <code>testdata/mail.log</code>，由 <code>testdata/gen.py</code> 生成，模拟一台出站中继"糟糕的一天"；域名和 IP 都是文档保留段）。"在真实 Postfix 上"一节摘自项目 CI 日志，CI 会在 Docker 里起一个一次性的 Postfix 3.7。下文输出除去掉颜色外没有任何改动。</p>
+
+<h2 id="loop">常见的排查流程</h2>
+<p>手工排查 Postfix 卡信一般是：<code>mailq | less</code>，挑一个看起来常见的原因，去邮件日志里 <code>grep</code>，再用 <code>sort | uniq -c</code> 计数（但每行地址和 IP 都不同，根本聚不起来），跑 <a href="https://www.postfix.org/QSHAPE_README.html">qshape</a> 看是新问题还是老问题，最后 <code>dig</code> 查 SPF、DMARC 的 TXT 记录。postsleuth 读的是同样的东西（<code>postqueue -j</code>、邮件日志、DNS），把归并这一步替你做了。除非启动时加 <code>--allow-mutations</code>，它不会改动队列。</p>
+<pre><code>go install github.com/Blackman99/postsleuth/cmd/postsleuth@latest
+# 或者从 GitHub Releases 下载静态二进制</code></pre>
+
+<h2 id="queue">1. 按原因归并队列</h2>
+<p>在邮件服务器上直接运行 <code>postsleuth queue</code> 即可。这里改为读取保存下来的 <code>postqueue -j</code> 输出：</p>
+<pre><code>postsleuth queue --queue-file testdata/queue.json</code></pre>
+<pre class="out"><code>QUEUE   212 messages · deferred 205 · active 6 · hold 1 · oldest 1d23h (F5EC72BA69)
+  ✗  150  rate_limit        gmail.com, googlemail.com
+         421-4.7.28 Gmail has detected an unusual rate of unsolicited mail originating from your IP addr…
+         → The receiver is throttling you: lower smtp_destination_concurrency_limit / add
+           smtp_destination_rate_delay for that domain, and check your sending reputation.
+  ✗   34  blocklist         hotmail.com, outlook.com
+         550 5.7.1 Unfortunately, messages from [ip] weren&#x27;t sent. Please contact your Internet service …
+         → The receiver rejects your IP or domain because of a blocklist entry: look the IP up (Spamhaus,
+           Microsoft SNDS) and request delisting after fixing the cause.
+  ✗   14  timeout           oldcorp.example
+         connect to mx.oldcorp.example[ip]: Connection timed out
+         → Connections to port 25 time out: many providers block outbound port 25, so test with nc -vz MX 25
+           and use a relayhost if blocked.
+  ✗    4  dns               acme-typo.example
+         Host or domain name not found. Name service error for name=acme-typo.example type=MX: Host not …
+         → DNS lookup for the destination failed: check the domain exists and has MX/A records, and that this
+           server&#x27;s resolver works (dig MX domain).
+  !    3  greylisting       smallbiz.example
+         450 4.7.1 &lt;addr&gt;: Recipient address rejected: Greylisted, see http://postgrey.schweikert.ch/hel…
+         → Greylisting: normal, Postfix retries automatically. Only a problem if it persists for hours.</code></pre>
+<p>212 封邮件归成了 5 行。归并前会先把延迟原因里的地址、IP 和追踪 ID 去掉，所以只差在收件人上的 150 条 Gmail 延迟会合成一个 <code>rate_limit</code> 组。每组都有分类（共 17 类，从 <code>rate_limit</code>、<code>blocklist</code> 到 <code>ptr</code>、<code>auth</code>、<code>tls</code>）和处理建议。灰名单标为警告（<code>!</code>）而不是问题（<code>✗</code>），因为 Postfix 会自动重试。</p>
+<p>要看某一组背后的具体邮件，按分类过滤：</p>
+<pre><code>postsleuth queue --queue-file testdata/queue.json --category blocklist --list --limit 1</code></pre>
+<pre class="out"><code>78715BBD26 deferred 20h6m   85428  billing@example.com
+    → j.smith141@hotmail.com
+      host outlook-com.olc.protection.outlook.com[52.101.42.3] said: 550 5.7.1 Unfortunately, messages from [203.0.113.7] weren&#x27;t sent. Please contact your Internet service provider since part of their network is on our block list (S3150). (in reply to MAIL FROM command)</code></pre>
+<p><code>--list</code> 会保留完整的回复。微软的 <code>S3150</code> 代码说明了原因（发信 IP 在其黑名单上），搜索或提工单时就用它。</p>
+
+<h2 id="shape">2. 从什么时候开始的？（qshape）</h2>
+<pre><code>postsleuth shape --queue-file testdata/queue.json</code></pre>
+<pre class="out"><code>SHAPE   deferred queue by recipient domain, age in minutes
+                         T     5    10    20    40    80   160   320   640  1280 1280+
+              TOTAL    205     0     0     0     9    22    45    80    12    21    16
+          gmail.com    141     0     0     0     7    19    39    73     3     0     0
+        outlook.com     23     0     0     0     0     0     1     4     6     8     4
+    oldcorp.example     14     0     0     0     0     0     0     0     1     5     8
+        hotmail.com     11     0     0     0     0     0     0     1     2     6     2
+     googlemail.com      9     0     0     0     0     2     5     2     0     0     0
+  acme-typo.example      4     0     0     0     0     0     0     0     0     2     2
+   smallbiz.example      3     0     0     0     2     1     0     0     0     0     0</code></pre>
+<p>列是邮件在队列里的时长（分钟），与 Postfix 自带的 qshape 一致。从左往右看：Gmail 的延迟集中在 40 到 640 分钟这几列，没有更老的，说明限速大约是最近十一个小时内开始的，而且新邮件仍在被拦。<code>oldcorp.example</code> 全在右侧几列：这个目的地已经大半天连不上，如果情况不变，这些邮件会在 <code>maximal_queue_lifetime</code> 到期后退回。怀疑某个被盗账号在刷信时用 <code>shape --by sender</code>；这份样例里所有邮件都来自 <code>example.com</code>，所以用不上。</p>
+
+<h2 id="log">3. 日志里发生了什么</h2>
+<p>队列只反映还卡着的邮件，日志则记录了已经发生的事，包括退信和已送达的邮件：</p>
+<pre><code>postsleuth log --log testdata/mail.log --since all</code></pre>
+<pre class="out"><code>LOG     testdata/mail.log · 792 sent · 125 deferred attempts · 26 bounced · 1 expired · 30 rejected
+  ! still failing: gmail.com (82), outlook.com (38), oldcorp.example (5)
+  ✗ bounce     14  blocklist         550 5.7.1 Unfortunately, messages from [ip] weren&#x27;t sent. Please cont… · outlook.com
+  ✗ bounce     12  recipient_unknown 554 5.1.1 &lt;addr&gt;: Recipient address rejected: User unknown · yahoo.com
+  ✗ deferral   82  rate_limit        421-4.7.28 Gmail has detected an unusual rate of unsolicited mail ori… · gmail.com
+  ✗ deferral   38  blocklist         550 5.7.1 Unfortunately, messages from [ip] weren&#x27;t sent. Please cont… · outlook.com
+  ✗ deferral    5  timeout           connect to mx.oldcorp.example[ip]: Connection timed out · oldcorp.example
+  ✗ reject     30  relay_denied      554 5.7.1 &lt;addr&gt;: Relay access denied
+
+  domain                             sent  deferred  bounced  last
+  gmail.com                           355        82        0  deferred
+  outlook.com                          30        38       14  deferred
+  yahoo.com                            91         0       12  sent
+  oldcorp.example                       0         5        0  deferred
+  fastmail.com                        103         0        0  sent
+  proton.me                            97         0        0  sent
+  qq.com                               90         0        0  sent
+  example.com                          26         0        0  sent</code></pre>
+<p>这里有两点是队列看不出来的。第一，Gmail 仍在接收大部分邮件（成功 355 次，延迟 82 次），符合按发送量限速、而不是彻底封禁的特征。第二，Outlook 已经直接退回了 14 封，最近一次尝试仍是延迟：黑名单已经造成了实际的丢信。30 条 <code>relay_denied</code> 是 smtpd 拒绝了试图借道转发的外部客户端，这是服务器在正常工作，但如果这个数字突然暴涨就值得留意。</p>
+<p>在真实服务器上可以省略 <code>--log</code>：postsleuth 会先从 <code>postconf</code> 读取 <code>maillog_file</code>，再依次尝试 <code>/var/log/mail.log</code>、<code>/var/log/maillog</code> 和 journald。syslog、RFC 3339、journald 三种时间格式以及 <code>.gz</code> 轮转文件都支持。</p>
+
+<h2 id="trace">4. 追踪单封邮件</h2>
+<p>用户问起某一封信时，按队列 ID 或地址追踪。如果邮件被退回，Postfix 生成的退信通知也会一并列出：</p>
+<pre><code>postsleuth trace 85C1D13765 --log testdata/mail.log</code></pre>
+<pre class="out"><code>85C1D13765  bounced
+  Oct 11 09:11:44 mail postfix/smtpd[3005]: 85C1D13765: client=app1.internal[10.0.0.5]
+  Oct 11 09:11:44 mail postfix/cleanup[2671]: 85C1D13765: message-id=&lt;ab8c2ecd20@example.com&gt;
+  Oct 11 09:11:45 mail postfix/qmgr[1201]: 85C1D13765: from=&lt;noreply@example.com&gt;, size=5120, nrcpt=1 (queue active)
+  Oct 11 09:11:46 mail postfix/smtp[2757]: 85C1D13765: to=&lt;old.user8@yahoo.com&gt;, relay=mta7.am0.yahoodns.net[67.195.204.72]:25, delay=1.2, delays=0.1/0/0.6/0.5, dsn=5.1.1, status=bounced (host mta7.am0.yahoodns.net[67.195.204.72] said: 554 5.1.1 &lt;old.user@yahoo.com&gt;: Recipient address rejected: User unknown (in reply to RCPT TO command))
+  Oct 11 09:11:46 mail postfix/bounce[3301]: 85C1D13765: sender non-delivery notification: B4EE96B1C7
+  Oct 11 09:11:47 mail postfix/qmgr[1201]: 85C1D13765: removed
+B4EE96B1C7  sent (bounce notice for 85C1D13765)
+  Oct 11 09:11:46 mail postfix/qmgr[1201]: B4EE96B1C7: from=&lt;&gt;, size=7200, nrcpt=1 (queue active)
+  Oct 11 09:11:47 mail postfix/local[4410]: B4EE96B1C7: to=&lt;noreply@example.com&gt;, relay=local, delay=0.1, delays=0/0/0/0.1, dsn=2.0.0, status=sent (delivered to mailbox)
+  Oct 11 09:11:47 mail postfix/qmgr[1201]: B4EE96B1C7: removed</code></pre>
+
+<h2 id="doctor">5. 一次看全</h2>
+<p><code>postsleuth doctor</code> 会依次输出队列摘要、qshape、日志摘要和发信域名的 DNS 检查（MX、SPF 及其 10 次查询上限、DKIM、DMARC、PTR/正反解一致性），最后给出结论行。发现问题时退出码为 1，可以直接放进 cron 或监控检查。由于样例里的域名不是真实域名，这里跳过 DNS：</p>
+<pre><code>postsleuth doctor --queue-file testdata/queue.json --log testdata/mail.log --since all --no-dns
+echo $?   # 1</code></pre>
+<p>输出就是第 1–3 节合在一份报告里，最后一行是：</p>
+<pre class="out"><code>RESULT  6 problem(s), 4 warning(s)</code></pre>
+
+<h2 id="real">在真实 Postfix 上</h2>
+<p>CI 会构建一个 Debian Postfix 3.7 容器，用 transport 表把 <code>retry.test</code> 指向一个只会延迟的 <code>retry:</code> 传输，把 <code>bounce.test</code> 指向 <code>error:</code>，把 <code>timeout.test</code> 指向永远不会应答的 <code>192.0.2.1</code>。然后发送 6 封邮件，在容器外用 <code>--wrap "docker exec -i postsleuth-it"</code> 运行 postsleuth，跟你对 docker-mailserver 或 mailcow 的用法完全一样。容器里的 <code>mailq</code> 是这样的：</p>
+<pre class="out"><code>-Queue ID-  --Size-- ----Arrival Time---- -Sender/Recipient-------
+8CFA98C2D24     284 Sun Oct 11 23:24:29  app@example.test
+        (Too many messages from your IP, rate limit exceeded, try again later)
+                                         user1@retry.test
+
+BB3F58C2D39     284 Sun Oct 11 23:24:29  app@example.test
+                    (connect to 192.0.2.1[192.0.2.1]:25: Connection timed out)
+                                         ceo@timeout.test
+
+9D3388C2D2E     284 Sun Oct 11 23:24:29  app@example.test
+        (Too many messages from your IP, rate limit exceeded, try again later)
+                                         user2@retry.test</code></pre>
+<p>同一容器上的 <code>postsleuth doctor</code>（取自提交 <code>fd6a2f8</code> 的 CI 运行，2026-10-11）：</p>
+<pre class="out"><code>postsleuth doctor · mail.example.test · 2026-10-11 23:24 UTC
+
+QUEUE   3 messages · deferred 3 · oldest 0m (8CFA98C2D24)
+  ✗    2  rate_limit        retry.test
+         Too many messages from your IP, rate limit exceeded, try again later
+         → The receiver is throttling you: lower smtp_destination_concurrency_limit / add
+           smtp_destination_rate_delay for that domain, and check your sending reputation.
+  ✗    1  timeout           timeout.test
+         connect to ip[ip]: Connection timed out
+         → Connections to port 25 time out: many providers block outbound port 25, so test with nc -vz MX 25
+           and use a relayhost if blocked.
+
+SHAPE   deferred queue by recipient domain, age in minutes
+                    T     5    10    20    40    80   160   320   640  1280 1280+
+         TOTAL      3     3     0     0     0     0     0     0     0     0     0
+    retry.test      2     2     0     0     0     0     0     0     0     0     0
+  timeout.test      1     1     0     0     0     0     0     0     0     0     0
+
+LOG     docker exec -i postsleuth-it cat /var/log/postfix.log · 1 sent · 3 deferred attempts · 4 bounced · 0 expired · 0 rejected
+  ! still failing: retry.test (2), timeout.test (1)
+  ✗ bounce      2  dns               Host or domain name not found. Name service error for name=example.te… · example.test
+  ✗ bounce      1  dns               Host or domain name not found. Name service error for name=nxdomain.i… · nxdomain.invalid
+  ✗ bounce      1  recipient_unknown Recipient address rejected: User unknown in virtual mailbox table · bounce.test
+  ✗ deferral    2  rate_limit        Too many messages from your IP, rate limit exceeded, try again later · retry.test
+  ✗ deferral    1  timeout           connect to ip[ip]: Connection timed out · timeout.test
+
+RESULT  1 problem(s), 7 warning(s)</code></pre>
+<p>可以看到 doctor 比 <code>mailq</code> 多给了什么：延迟被分类归并；日志部分还列出了已经离开队列的退信，包括 <code>example.test</code> 的二次退信（容器里发信域名没有 DNS，所以退信通知本身也被退回）。同一次运行随后还验证了不带 <code>--allow-mutations</code> 的 <code>delete</code> 和 <code>delete ALL</code> 都会被拒绝。</p>
+
+<h2 id="act">接下来怎么处理</h2>
+<p>不同分类对应不同处理方法，大多数都不是"flush 一下队列"：</p>
+<ul>
+<li><strong>rate_limit（Gmail 4.7.28）</strong>：不要 flush，集中重试只会更糟。为该传输调低 <code>smtp_destination_concurrency_limit</code> 或加上 <code>smtp_destination_rate_delay</code>，检查 SPF/DKIM/DMARC 对齐和发信量异常的原因，然后等退避重试。</li>
+<li><strong>blocklist（Outlook S3150）</strong>：IP 信誉有问题。先修复根因（开放转发、被盗账号、缺 PTR），再走微软的解封表单并查看 SNDS。</li>
+<li><strong>timeout</strong>：在服务器上执行 <code>nc -vz &lt;mx&gt; 25</code>。很多云厂商默认封出站 25 端口，这种情况要改用 relayhost。</li>
+<li><strong>dns</strong>：通常是收件域名拼错了，直接告诉发件人，不要等到队列超时。</li>
+</ul>
+<p>确实需要改动队列时，命令是有的，但默认锁着：</p>
+<pre><code>$ postsleuth delete 78715BBD26
+postsleuth: delete changes the mail queue; re-run with --allow-mutations if you mean it
+$ postsleuth delete ALL --allow-mutations
+postsleuth: invalid queue ID "ALL"</code></pre>
+
+<h2 id="agents">给 AI 助手用</h2>
+<p><code>postsleuth mcp</code> 通过 stdio 把同样的只读能力暴露为 MCP 工具，Claude、Cursor 等 MCP 客户端就能在你指定的服务器上（本机、<code>--wrap "ssh mx sudo"</code> 或容器内）回答"为什么发往 Outlook 的信卡住了？"。修改队列的工具默认根本不出现在工具列表里，只有启动时加 <code>--allow-mutations</code> 才会提供，并且每次调用还要 <code>confirm: true</code>。配置示例见<a href="../docs/#mcp">文档</a>。</p>
+<p>如果你遇到的真实延迟原因被归到 <code>other</code>，欢迎<a href="https://github.com/Blackman99/postsleuth/issues">提 issue</a> 附上原文（去掉地址），分类器就是这样变准的。</p>
+
+</article>
+<p class="foot"><a href="https://github.com/Blackman99/postsleuth">github.com/Blackman99/postsleuth</a> · <a href="../docs/">文档</a> · MIT</p>
+</main></div>
+<footer><div class="wrap">Map not to scale. postsleuth is not affiliated with the Postfix project.</div></footer>
+</body></html>
