@@ -58,9 +58,9 @@ h2{font:700 clamp(26px,3vw,38px)/1.1 Jost,sans-serif;margin:0 0 16px;display:fle
 .lc{grid-row:1/3;align-self:stretch;width:10px;border-radius:5px}
 .lc.mul{background:var(--mul)}.lc.slate{background:var(--slate)}.lc.jade{background:var(--jade)}
 .board b{font-weight:700;font-size:19px}
-.board em{font-style:normal;font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--slate)}
+.board em{font-style:normal;font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:#5c566e}
 .board .sev em{color:var(--mul)}
-.board .good em{color:var(--jade)}
+.board .good em{color:#006b58}
 .why{font-size:15px;color:#4a4060}
 .why code{font-size:13px}
 .next{grid-column:4;font-size:15px}
@@ -111,7 +111,7 @@ h2{font:700 clamp(26px,3vw,38px)/1.1 Jost,sans-serif;margin:0 0 16px;display:fle
 .points.open #shackle{transform:translate(7px,-5px) rotate(28deg)}
 .pt{font:500 16px Jost,sans-serif;fill:var(--ink)}.pt.sm{font:400 13px "DM Mono",monospace}
 .lever{margin-top:12px;font:500 15px "DM Mono",monospace;background:#fff;color:var(--ink);border:2px solid var(--ink);padding:10px 16px;cursor:pointer;border-radius:22px}
-.lever span{display:inline-block;margin-left:10px;padding:1px 10px;border-radius:10px;background:var(--slate);color:#fff}
+.lever span{display:inline-block;margin-left:10px;padding:1px 10px;border-radius:10px;background:#5c566e;color:#fff}
 .lever[aria-pressed=true] span{background:var(--mul)}
 
 /* ---------- install ---------- */

@@ -64,7 +64,7 @@
       const cls = kind === 'bounce' ? '' : '';
       trains.push({ kind, r: makeTrain(cls), d: 0, t0: t });
     }
-    function tick(t, dt) {
+    function tick(t, dt, draw = true) {
       if (t - lastSpawn > 950) { spawn(t); lastSpawn = t; }
       for (let i = trains.length - 1; i >= 0; i--) {
         const tr = trains[i];
@@ -83,17 +83,18 @@
           trains.splice(i, 1);
           continue;
         }
-        place(tr.r, p, tr.d);
+        if (draw) place(tr.r, p, tr.d);
       }
       loopers.forEach(lp => {
         lp.d = (lp.d + SPEED * 0.6 * dt) % paths.loop.len;
-        place(lp.r, paths.loop, lp.d);
+        if (draw) place(lp.r, paths.loop, lp.d);
       });
     }
     // warm up so the first frame already shows a running network
     for (let i = 0; i < 4; i++) loopers.push({ r: makeTrain('stuck'), d: paths.loop.len * i / 4 });
     let vt = 0;
-    for (; vt < 7000; vt += 16) tick(vt, 16);
+    for (; vt < 7000; vt += 16) tick(vt, 16, false);
+    tick(vt, 0);
     waiting = 205; count.textContent = '205 waiting';
     let last = null;
     function frame(t) {
