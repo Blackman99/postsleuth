@@ -1,0 +1,24 @@
+name: CI
+on:
+  push: {branches: [main]}
+  pull_request:
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -race ./...
+  postfix-integration:
+    name: Integration (Postfix in Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - run: CGO_ENABLED=0 go build -o postsleuth ./cmd/postsleuth
+      - run: ./test/integration.sh ./postsleuth

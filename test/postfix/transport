@@ -1,0 +1,3 @@
+retry.test    retry:4.7.0 Too many messages from your IP, rate limit exceeded, try again later
+bounce.test   error:5.1.1 Recipient address rejected: User unknown in virtual mailbox table
+timeout.test  smtp:[192.0.2.1]:25

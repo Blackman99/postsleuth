@@ -1,0 +1,4 @@
+/postsleuth
+/dist/
+*.test
+__pycache__/
