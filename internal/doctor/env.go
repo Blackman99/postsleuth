@@ -98,6 +98,52 @@ func (e *Env) LogStats(ctx context.Context, window time.Duration, domain string,
 	return LogResult{Source: src, Since: since, Stats: agg.Result(top)}, nil
 }
 
+// TrendResult is per-destination deferral trends plus where they came from.
+type TrendResult struct {
+	Source string        `json:"source"`
+	Since  time.Time     `json:"since"`
+	Trend  maillog.Trend `json:"trend"`
+}
+
+// LogTrend aggregates per-destination deferral rates over time buckets.
+// bucketSize 0 selects an automatic width from the window.
+func (e *Env) LogTrend(ctx context.Context, window, bucketSize time.Duration, domain string, top int) (TrendResult, error) {
+	now := e.now()
+	since := time.Time{}
+	if window > 0 {
+		since = now.Add(-window)
+	}
+	rcs, src, err := e.Runner.OpenLogs(ctx, e.Logs, e.mailLogFile(ctx), since)
+	if err != nil {
+		return TrendResult{}, err
+	}
+	agg := maillog.NewTrendAggregator(domain, bucketSize)
+	agg.WindowStart = since
+	agg.WindowEnd = now
+	if since.IsZero() {
+		// leave WindowStart zero so Result uses first/last events
+		agg.WindowEnd = time.Time{}
+	}
+	for _, rc := range rcs {
+		err := maillog.Scan(rc, now, since, agg.Add, nil)
+		rc.Close()
+		if err != nil {
+			return TrendResult{}, err
+		}
+	}
+	tr := agg.Result(top)
+	if since.IsZero() && !tr.First.IsZero() {
+		// re-run Result with observed span as window so buckets are contiguous
+		agg.WindowStart = tr.First
+		agg.WindowEnd = tr.Last
+		if agg.WindowEnd.IsZero() {
+			agg.WindowEnd = now
+		}
+		tr = agg.Result(top)
+	}
+	return TrendResult{Source: src, Since: since, Trend: tr}, nil
+}
+
 // Trace follows a queue ID or address through the log.
 func (e *Env) Trace(ctx context.Context, query string, window time.Duration, limit int) ([]maillog.TracedMessage, string, error) {
 	now := e.now()

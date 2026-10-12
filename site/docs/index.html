@@ -20,7 +20,7 @@
 <div class="docs">
 <nav class="route" aria-label="Contents"><ol>
 <li><a href="#install">Install</a></li><li><a href="#quick">Quick start</a></li><li><a href="#doctor">doctor</a></li><li><a href="#queue">queue &amp; shape</a></li>
-<li><a href="#log">log &amp; trace</a></li><li><a href="#dns">dns</a></li><li><a href="#mcp">MCP server</a></li><li><a href="#tools">Tool reference</a></li>
+<li><a href="#log">log &amp; trace</a></li><li><a href="#trend">trend</a></li><li><a href="#dns">dns</a></li><li><a href="#mcp">MCP server</a></li><li><a href="#tools">Tool reference</a></li>
 <li><a href="#categories">Failure categories</a></li><li><a href="#sources">Where data comes from</a></li><li><a href="#safety">Changing the queue</a></li><li><a href="#scripts">JSON &amp; exit codes</a></li><li><a href="#faq">Troubleshooting</a></li>
 </ol></nav>
 <main id="content" class="doc">
@@ -36,13 +36,14 @@
 postsleuth queue                  # what is stuck and why
 postsleuth shape                  # which destination, since when
 postsleuth log --since 24h        # what happened
+postsleuth trend --domain gmail.com # deferral rate over time
 postsleuth trace bob@example.org  # one message, start to finish
 postsleuth dns example.com --ip 203.0.113.7</code></pre>
 <p>Run it as a user that can read the mail log. On Debian and Ubuntu that is the <code>adm</code> group (<code>sudo usermod -aG adm $USER</code>). <code>postqueue -j</code> is allowed for every user by default (<code>authorized_mailq_users</code>).</p>
 <p>For a worked example with real output, read <a href="../blog/stuck-postfix-mail.html">Diagnosing stuck mail with postsleuth</a> (<a href="../blog/stuck-postfix-mail.zh.html" lang="zh-CN">中文版</a>).</p>
 
 <h2 id="doctor">doctor</h2>
-<p><code>postsleuth doctor</code> combines the queue summary, a qshape of the deferred queue, log outcomes for the window (<code>--since</code>, default 24h) and the DNS checks for your sending domain. It ends with a list of findings and exits <code>1</code> if any is a problem.</p>
+<p><code>postsleuth doctor</code> combines the queue summary, a qshape of the deferred queue, log outcomes and destination deferral trends for the window (<code>--since</code>, default 24h) and the DNS checks for your sending domain. It ends with a list of findings (including worsening high-volume destinations) and exits <code>1</code> if any is a problem.</p>
 <pre><code>postsleuth doctor [--since 24h] [--domain example.com] [--ip 203.0.113.7] [--selector mail] [--no-dns] [--no-log] [--json]</code></pre>
 <p>The sending domain defaults to <code>myorigin</code> (or <code>mydomain</code>). The sending IP defaults to <code>smtp_bind_address</code>, else the public A/AAAA records of <code>myhostname</code> when there is no <code>relayhost</code>. DKIM selectors are read from opendkim's "DKIM-Signature field added (s=…, d=…)" log lines, else common names are probed.</p>
 
@@ -57,9 +58,13 @@ postsleuth shape [deferred|active|hold|incoming|all] [--by sender] [--top 20]</c
 <pre><code>postsleuth log [--since 1h|24h|7d|all] [--domain gmail.com] [--top 15]
 postsleuth trace 4F2A1C3B9
 postsleuth trace bob@example.org --since 7d</code></pre>
-<p><code>log</code> reports totals (received, sent, deferred attempts, bounced, expired, smtpd rejects), per-domain outcomes, domains whose latest attempt was a deferral ("still failing"), grouped deferral reasons, bounce causes and reject reasons, each with a category and hint.</p>
+<p><code>log</code> reports totals (received, sent, deferred attempts, bounced, expired, smtpd rejects), per-domain outcomes, domains whose latest attempt was a deferral ("still failing"), grouped deferral reasons, bounce causes and reject reasons, each with a category and hint. For the same data over time, use <a href="#trend"><code>trend</code></a>.</p>
 <p><code>trace</code> prints every line for each matching queue ID (smtpd, pickup, cleanup, qmgr, smtp/local, bounce) and its final status. Matching by address also pulls in the non-delivery notice Postfix generated for a bounce.</p>
 
+
+<h2 id="trend">trend</h2>
+<pre><code>postsleuth trend [--since 1h|24h|7d|all] [--domain gmail.com] [--bucket 15m|1h|4h|12h|1d] [--top 15]</code></pre>
+<p><code>trend</code> buckets sent and deferred attempts by recipient domain over the window (bucket width defaults from <code>--since</code>: 15m for ≤2h, 1h for ≤24h, 4h for ≤3d, …). For each destination it shows the deferral rate per bucket and a direction — <code>improving</code>, <code>worsening</code>, <code>flat</code>, or <code>insufficient_data</code> — by comparing the early half of the window to the late half. Use it to answer "is Gmail getting better?" after you lower concurrency or wait out a rate limit. <code>doctor</code> surfaces worsening high-volume destinations as findings.</p>
 <h2 id="dns">dns</h2>
 <pre><code>postsleuth dns [DOMAIN] [--ip 203.0.113.7] [--selector mail] [--helo mail.example.com] [--resolver 1.1.1.1]</code></pre>
 <table><thead><tr><th>Check</th><th>What fails it</th></tr></thead><tbody>
@@ -93,6 +98,7 @@ postsleuth trace bob@example.org --since 7d</code></pre>
 <tr><td><code>postfix_queue_list</code></td><td>List queued messages (queue ID, queue, arrival time, size, sender, recipients with delay reasons), filtered by queue, recipient domain, sender, reason text, reason category or minimum age.</td><td class='args'><code>queue</code> queue name filter, e.g. deferred<br><code>domain</code> recipient domain; a leading dot matches subdomains too<br><code>sender</code> substring of the envelope sender<br><code>reason_contains</code> case-insensitive substring of the delay reason<br><code>category</code> reason category id, e.g. rate_limit, auth, ptr, timeout<br><code>min_age</code> only messages older than this, e.g. 2h or 3d<br><code>limit</code> max messages returned (default 50)</td></tr>
 <tr><td><code>postfix_queue_shape</code></td><td>qshape-style matrix of a queue: rows are recipient (or sender) domains, columns are message age buckets in minutes (5,10,20,...,1280+). Shows which destination is backing up and since when.</td><td class='args'><code>queue</code> queue to shape (default deferred; &#x27;all&#x27; for every queue)<br><code>by</code> recipient (default) or sender domain<br><code>top</code> max domains (default 20)</td></tr>
 <tr><td><code>postfix_log_stats</code></td><td>Aggregate the Postfix mail log over a time window: totals (received, sent, deferred attempts, bounced, expired, smtpd rejects), per-domain outcomes, domains still failing, grouped deferral reasons and bounce causes with category and hint, and DKIM selectors seen in signing logs.</td><td class='args'><code>since</code> time window, e.g. 1h, 24h (default), 7d, or all<br><code>domain</code> only this recipient domain (leading dot = include subdomains)<br><code>top</code> max entries per list (default 15)</td></tr>
+<tr><td><code>postfix_log_trend</code></td><td>Per-destination deferral rate over time buckets: sent/deferred counts and rate per bucket, plus a direction (improving / worsening / flat / insufficient_data) comparing the early vs late half of the window.</td><td class='args'><code>since</code> time window, e.g. 1h, 24h (default), 7d, or all<br><code>domain</code> only this recipient domain (leading dot = include subdomains)<br><code>bucket</code> bucket size, e.g. 15m, 1h, 4h, 12h, 1d (default: auto from window)<br><code>top</code> max destinations (default 15)</td></tr>
 <tr><td><code>postfix_log_trace</code></td><td>Follow one message through the log by queue ID or email address: every line for each matching queue ID (smtpd, cleanup, qmgr, smtp/local, bounce notifications) and its final status.</td><td class='args'><code>query</code> a queue ID (e.g. 4F2A1C3B9) or an email address<br><code>since</code> time window (default 7d)<br><code>limit</code> max messages (default 20, newest kept)</td></tr>
 <tr><td><code>mail_dns_check</code></td><td>Check the DNS records receivers use to accept or reject your mail: MX, SPF (syntax, 10-lookup limit, whether the sending IP is authorised), DKIM selector keys (presence, key size), DMARC policy and reporting, PTR with forward confirmation (FCrDNS) against myhostname.</td><td class='args'><code>domain</code> sending domain (default: myorigin/mydomain from postconf)<br><code>ips</code> sending IPs to check SPF authorisation and PTR/FCrDNS for (default: smtp_bind_address or myhostname&#x27;s public A/AAAA)<br><code>selectors</code> DKIM selectors (default: taken from opendkim log lines, else common names are probed)</td></tr>
 <tr><td><code>postfix_config</code></td><td>Delivery-relevant non-default Postfix settings from postconf -n (relayhost, TLS policy, SASL, concurrency/rate limits, queue lifetimes, domains, milters). Secret-looking values are redacted.</td><td class='args'>none</td></tr>

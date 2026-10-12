@@ -30,6 +30,15 @@ Hide
 Type "clear"
 Enter
 Show
+Type "postsleuth trend --log mail.log --since all --domain gmail.com --no-color"
+Sleep 400ms
+Enter
+Sleep 6s
+
+Hide
+Type "clear"
+Enter
+Show
 Type "postsleuth trace old.user3@yahoo.com --log mail.log --since all --limit 1"
 Sleep 400ms
 Enter

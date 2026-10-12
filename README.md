@@ -22,6 +22,7 @@ or grab a binary for Linux, macOS or Windows from [Releases](https://github.com/
 postsleuth doctor                  # queue + qshape + log + SPF/DKIM/DMARC/PTR, with next steps
 postsleuth queue --domain .outlook.com
 postsleuth shape --by sender       # who filled the deferred queue
+postsleuth trend --domain gmail.com  # deferral rate over time — getting better?
 postsleuth trace bob@example.org   # one message, start to finish
 postsleuth dns example.com --ip 203.0.113.7
 ```

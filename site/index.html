@@ -126,7 +126,7 @@
 
 <section id="lines" class="lines" aria-labelledby="lines-h">
   <div class="wrap">
-    <h2 id="lines-h"><span class="bar jade"></span>Five stops, one line</h2>
+    <h2 id="lines-h"><span class="bar jade"></span>Six stops, one line</h2>
   </div>
   <div class="strip" data-strip>
     <svg class="strip-svg" viewBox="0 0 1000 40" preserveAspectRatio="none" aria-hidden="true"><path d="M20,20 H980" class="sl jade"/><rect class="strain" x="8" y="14" width="26" height="12" rx="6"/></svg>
@@ -134,6 +134,7 @@
       <li><span class="dot"></span><b>queue</b><code>postsleuth queue</code><p>Counts per queue, top domains, every delay reason grouped and classified into 17 causes with a hint.</p></li>
       <li><span class="dot"></span><b>shape</b><code>postsleuth shape</code><p>The qshape view: which destination is backing up, and since when, in age buckets.</p></li>
       <li><span class="dot"></span><b>log</b><code>postsleuth log --since 24h</code><p>Sent, deferred, bounced, expired, rejected per domain. Bounce causes. Domains still failing. Trace any message.</p></li>
+      <li><span class="dot"></span><b>trend</b><code>postsleuth trend</code><p>Deferral rate per destination over time buckets. Improving, worsening, or flat — is Gmail getting better?</p></li>
       <li><span class="dot"></span><b>dns</b><code>postsleuth dns</code><p>MX, SPF (10-lookup limit, is your IP allowed), DKIM keys, DMARC, PTR with forward confirmation.</p></li>
       <li><span class="dot"></span><b>doctor</b><code>postsleuth doctor</code><p>All of it in one report with next steps. Exit code 1 when something is wrong.</p></li>
     </ol>
@@ -164,6 +165,7 @@
       <li><span class="dot"></span><b>postfix_queue_list</b></li>
       <li><span class="dot"></span><b>postfix_queue_shape</b></li>
       <li><span class="dot"></span><b>postfix_log_stats</b></li>
+      <li><span class="dot"></span><b>postfix_log_trend</b></li>
       <li><span class="dot"></span><b>postfix_log_trace</b></li>
       <li><span class="dot"></span><b>mail_dns_check</b></li>
       <li><span class="dot"></span><b>postfix_config</b></li>

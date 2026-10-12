@@ -31,6 +31,11 @@ func TestQueueAndDoctorFromFiles(t *testing.T) {
 	if ec != 0 || !strings.Contains(out.String(), "bounced") {
 		t.Fatalf("trace: %d %s", ec, out.String())
 	}
+	out.Reset()
+	ec = run([]string{"trend", "--log", "../../testdata/mail.log", "--since", "all", "--no-color", "--top", "5"}, &out, &errb)
+	if ec != 0 || !strings.Contains(out.String(), "TREND") || !strings.Contains(out.String(), "gmail.com") {
+		t.Fatalf("trend: %d %s %s", ec, out.String(), errb.String())
+	}
 }
 
 func TestBadInput(t *testing.T) {

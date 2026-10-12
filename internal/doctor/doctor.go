@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Blackman99/postsleuth/internal/dnsauth"
+	"github.com/Blackman99/postsleuth/internal/maillog"
 	"github.com/Blackman99/postsleuth/internal/queue"
 )
 
@@ -35,6 +36,7 @@ type Report struct {
 	Shape       *queue.Shape      `json:"shape,omitempty"`
 	Log         *LogResult        `json:"log,omitempty"`
 	LogError    string            `json:"log_error,omitempty"`
+	Trend       *TrendResult      `json:"trend,omitempty"`
 	DNS         *dnsauth.Report   `json:"dns,omitempty"`
 	DNSError    string            `json:"dns_error,omitempty"`
 	Config      map[string]string `json:"config,omitempty"`
@@ -83,6 +85,10 @@ func (e *Env) Run(ctx context.Context, o Options) Report {
 		} else {
 			r.Log = &lr
 			r.logFindings(lr)
+			if tr, err := e.LogTrend(ctx, o.Window, 0, "", o.Top); err == nil && len(tr.Trend.Domains) > 0 {
+				r.Trend = &tr
+				r.trendFindings(tr)
+			}
 		}
 	}
 	if !o.SkipDNS {
@@ -199,6 +205,20 @@ func (r *Report) logFindings(lr LogResult) {
 	}
 	if st.Totals.Expired > 0 {
 		r.add(SevProblem, "log", fmt.Sprintf("%d message(s) expired and were returned to sender", st.Totals.Expired), "they sat in the queue past maximal_queue_lifetime", "")
+	}
+}
+
+func (r *Report) trendFindings(tr TrendResult) {
+	for _, d := range tr.Trend.Domains {
+		attempts := d.Sent + d.Deferred
+		if d.Direction != maillog.DirectionWorsening || attempts < 20 || d.LateRate < 0.2 {
+			continue
+		}
+		r.add(SevWarn, "log",
+			fmt.Sprintf("%s deferral rate worsening (%.0f%% → %.0f%%, %s buckets)",
+				d.Domain, d.EarlyRate*100, d.LateRate*100, tr.Trend.Bucket),
+			fmt.Sprintf("%d sent · %d deferred in window", d.Sent, d.Deferred),
+			"see postsleuth trend --domain "+d.Domain+"; check reputation and destination rate limits before flushing")
 	}
 }
 

@@ -42,6 +42,7 @@ Usage:
   postsleuth queue               summarise the queue; --list to print messages
   postsleuth shape [QUEUE]       qshape-style age x domain matrix (default: deferred)
   postsleuth log                 outcomes, deferral reasons, bounce causes from the mail log
+  postsleuth trend               per-destination deferral rate over time (is it getting better?)
   postsleuth trace ID|ADDRESS    every log line for a message
   postsleuth dns [DOMAIN]        MX, SPF, DKIM, DMARC, PTR/FCrDNS checks
   postsleuth config              delivery-relevant postconf -n settings
@@ -192,6 +193,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return cmdShape(ctx, fs, &c, args, stdout)
 		case "log":
 			return cmdLog(ctx, fs, &c, args, stdout)
+		case "trend":
+			return cmdTrend(ctx, fs, &c, args, stdout)
 		case "trace":
 			return cmdTrace(ctx, fs, &c, args, stdout)
 		case "dns":
@@ -366,6 +369,37 @@ func cmdLog(ctx context.Context, fs *flag.FlagSet, c *common, args []string, w i
 			fmt.Fprintf(w, "  %-32s %6d %9d %8d  %s\n", d.Domain, d.Sent, d.Deferred, d.Bounced, d.LastStatus)
 		}
 	}
+	return nil
+}
+
+func cmdTrend(ctx context.Context, fs *flag.FlagSet, c *common, args []string, w io.Writer) error {
+	var domain, bucket string
+	var top int
+	fs.StringVar(&domain, "domain", "", "only this recipient domain")
+	fs.StringVar(&bucket, "bucket", "", "bucket size (15m, 1h, 4h, 12h, 1d); default auto from --since")
+	fs.IntVar(&top, "top", 15, "max destinations")
+	if _, err := parseAll(fs, args); err != nil {
+		return err
+	}
+	win, err := parseWindow(c.since)
+	if err != nil {
+		return err
+	}
+	var bs time.Duration
+	if bucket != "" {
+		bs, err = parseWindow(bucket)
+		if err != nil {
+			return fmt.Errorf("bad --bucket %q (use 15m, 1h, 4h, 12h, 1d)", bucket)
+		}
+	}
+	r, err := c.env().LogTrend(ctx, win, bs, domain, top)
+	if err != nil {
+		return err
+	}
+	if c.jsonOut {
+		return printJSON(w, r)
+	}
+	doctor.WriteTrend(w, c.style(), r)
 	return nil
 }
 

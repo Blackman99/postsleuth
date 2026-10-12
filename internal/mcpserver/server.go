@@ -27,7 +27,7 @@ func ptr[T any](v T) *T { return &v }
 
 var readOnly = &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(false)}
 
-const instructions = `postsleuth inspects a Postfix mail server: the queue (postqueue -j), a qshape-style age-by-domain matrix, the mail log (deferral reasons, bounce causes, per-domain outcomes, message traces) and the DNS records receivers check (MX, SPF, DKIM, DMARC, PTR/FCrDNS).
+const instructions = `postsleuth inspects a Postfix mail server: the queue (postqueue -j), a qshape-style age-by-domain matrix, the mail log (deferral reasons, bounce causes, per-domain outcomes, per-destination deferral trends, message traces) and the DNS records receivers check (MX, SPF, DKIM, DMARC, PTR/FCrDNS).
 Start with postfix_doctor for an overview, then drill down. Every failure is classified (rate_limit, auth, ptr, blocklist, timeout, tls, dns, recipient_unknown, ...) with a hint. Tools that change the queue only exist when the operator started the server with --allow-mutations, and even then require confirm=true.`
 
 func parseWindow(s string, def time.Duration) (time.Duration, error) {
@@ -88,6 +88,14 @@ type LogStatsIn struct {
 	Since  string `json:"since,omitempty" jsonschema:"time window, e.g. 1h, 24h (default), 7d, or all"`
 	Domain string `json:"domain,omitempty" jsonschema:"only this recipient domain (leading dot = include subdomains)"`
 	Top    int    `json:"top,omitempty" jsonschema:"max entries per list (default 15)"`
+}
+
+// LogTrendIn are arguments.
+type LogTrendIn struct {
+	Since  string `json:"since,omitempty" jsonschema:"time window, e.g. 1h, 24h (default), 7d, or all"`
+	Domain string `json:"domain,omitempty" jsonschema:"only this recipient domain (leading dot = include subdomains)"`
+	Bucket string `json:"bucket,omitempty" jsonschema:"bucket size, e.g. 15m, 1h, 4h, 12h, 1d (default: auto from window)"`
+	Top    int    `json:"top,omitempty" jsonschema:"max destinations (default 15)"`
 }
 
 // TraceIn are arguments.
@@ -244,6 +252,27 @@ func New(env *doctor.Env, o Options) *mcp.Server {
 				in.Top = 15
 			}
 			r, err := env.LogStats(ctx, w, in.Domain, in.Top)
+			return nil, r, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "postfix_log_trend", Annotations: readOnly,
+		Description: "Per-destination deferral rate over time buckets from the mail log: sent/deferred counts and rate per bucket, plus a direction (improving / worsening / flat / insufficient_data) comparing the early vs late half of the window. Use to see whether Gmail/Outlook/etc. is getting better or worse."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in LogTrendIn) (*mcp.CallToolResult, doctor.TrendResult, error) {
+			w, err := parseWindow(in.Since, 24*time.Hour)
+			if err != nil {
+				return nil, doctor.TrendResult{}, err
+			}
+			var bs time.Duration
+			if in.Bucket != "" {
+				bs, err = parseWindow(in.Bucket, 0)
+				if err != nil {
+					return nil, doctor.TrendResult{}, fmt.Errorf("bad bucket %q", in.Bucket)
+				}
+			}
+			if in.Top == 0 {
+				in.Top = 15
+			}
+			r, err := env.LogTrend(ctx, w, bs, in.Domain, in.Top)
 			return nil, r, err
 		})
 

@@ -11,7 +11,7 @@
 - CI: unit tests + integration test against a real Postfix in Docker; GoReleaser binaries
 
 ## v0.2
-- Per-destination trend: deferral rate over time buckets (is it getting better?)
+- [x] Per-destination trend: deferral rate over time buckets (is it getting better?)
 - Provider-specific playbooks for Gmail (4.7.28 recovery steps), Microsoft (S3150 / SNDS), Yahoo
 - `postfix_queue_message` tool: headers of one queued message (`postcat -h`), with redaction
 - MCP over streamable HTTP with a bearer token for remote servers

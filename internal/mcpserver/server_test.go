@@ -83,7 +83,7 @@ func TestReadOnlyByDefault(t *testing.T) {
 	fakePostfix(t)
 	cs := connect(t, false)
 	ts := tools(t, cs)
-	for _, n := range []string{"postfix_doctor", "postfix_queue_summary", "postfix_queue_list", "postfix_queue_shape", "postfix_log_stats", "postfix_log_trace", "mail_dns_check", "postfix_config", "postfix_reason_categories"} {
+	for _, n := range []string{"postfix_doctor", "postfix_queue_summary", "postfix_queue_list", "postfix_queue_shape", "postfix_log_stats", "postfix_log_trend", "postfix_log_trace", "mail_dns_check", "postfix_config", "postfix_reason_categories"} {
 		tl, ok := ts[n]
 		if !ok {
 			t.Fatalf("missing tool %s", n)
@@ -118,6 +118,11 @@ func TestQueueAndLogTools(t *testing.T) {
 	st := out["stats"].(map[string]any)
 	if st["totals"].(map[string]any)["bounced"].(float64) != 26 {
 		t.Fatalf("log %v", st["totals"])
+	}
+	out, _ = call(t, cs, "postfix_log_trend", map[string]any{"since": "all", "top": 5})
+	tr := out["trend"].(map[string]any)
+	if tr["bucket"] == "" || len(tr["domains"].([]any)) == 0 {
+		t.Fatalf("trend %v", out)
 	}
 	out, _ = call(t, cs, "postfix_log_trace", map[string]any{"query": "old.user3@yahoo.com", "since": "all"})
 	if len(out["messages"].([]any)) != 2 {

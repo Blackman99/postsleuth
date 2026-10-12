@@ -113,6 +113,45 @@ func WriteLog(w io.Writer, s Style, lr LogResult) {
 	sec("reject", lr.Stats.Rejects)
 }
 
+// WriteTrend prints per-destination deferral trends.
+func WriteTrend(w io.Writer, s Style, tr TrendResult) {
+	t := tr.Trend
+	win := ""
+	if !tr.Since.IsZero() {
+		win = " since " + tr.Since.Format("Jan 2 15:04")
+	}
+	fmt.Fprintf(w, "%s %s · buckets %s%s · %d destination(s)\n", head(s, "TREND"), s.Dim(tr.Source), t.Bucket, win, len(t.Domains))
+	if len(t.Domains) == 0 {
+		fmt.Fprintf(w, "  %s no sent/deferred events in window\n", s.Mark("info"))
+		return
+	}
+	fmt.Fprintf(w, "  %-28s %6s %9s %7s  %-18s %s\n", "domain", "sent", "deferred", "rate", "direction", "early→late")
+	for _, d := range t.Domains {
+		mark := s.Mark("info")
+		switch d.Direction {
+		case maillog.DirectionWorsening:
+			mark = s.Mark(SevWarn)
+		case maillog.DirectionImproving:
+			mark = s.Mark(dnsauth.OK)
+		}
+		fmt.Fprintf(w, "  %s %-26s %6d %9d %6.0f%%  %-18s %.0f%%→%.0f%%\n",
+			mark, d.Domain, d.Sent, d.Deferred, d.Rate*100, d.Direction, d.EarlyRate*100, d.LateRate*100)
+		var parts []string
+		for _, b := range d.Buckets {
+			if b.Sent+b.Deferred == 0 {
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%s %.0f%%(%d/%d)", b.Start.Format("15:04"), b.Rate*100, b.Deferred, b.Sent+b.Deferred))
+		}
+		if len(parts) > 8 {
+			parts = parts[len(parts)-8:]
+		}
+		if len(parts) > 0 {
+			fmt.Fprintf(w, "         %s\n", s.Dim(strings.Join(parts, " · ")))
+		}
+	}
+}
+
 // WriteDNS prints DNS checks.
 func WriteDNS(w io.Writer, s Style, r dnsauth.Report) {
 	extra := ""
@@ -179,6 +218,32 @@ func WriteReport(w io.Writer, s Style, r Report) {
 		fmt.Fprintln(w)
 	} else if r.LogError != "" {
 		fmt.Fprintf(w, "%s %s %s\n\n", head(s, "LOG"), s.Mark("info"), r.LogError)
+	}
+	if r.Trend != nil && len(r.Trend.Trend.Domains) > 0 {
+		var shown int
+		for _, d := range r.Trend.Trend.Domains {
+			if d.Direction != maillog.DirectionWorsening && d.Direction != maillog.DirectionImproving {
+				continue
+			}
+			if d.Sent+d.Deferred < 10 {
+				continue
+			}
+			if shown == 0 {
+				fmt.Fprintf(w, "%s buckets %s\n", head(s, "TREND"), r.Trend.Trend.Bucket)
+			}
+			mark := s.Mark(SevWarn)
+			if d.Direction == maillog.DirectionImproving {
+				mark = s.Mark(dnsauth.OK)
+			}
+			fmt.Fprintf(w, "  %s %s %s (%.0f%% → %.0f%%)\n", mark, d.Domain, d.Direction, d.EarlyRate*100, d.LateRate*100)
+			shown++
+			if shown >= 4 {
+				break
+			}
+		}
+		if shown > 0 {
+			fmt.Fprintln(w)
+		}
 	}
 	if r.DNS != nil {
 		WriteDNS(w, s, *r.DNS)
