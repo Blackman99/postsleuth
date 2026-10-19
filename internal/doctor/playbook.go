@@ -114,13 +114,13 @@ func (r *Report) playbookFindings() {
 	for _, h := range r.Playbooks {
 		var ev []string
 		if h.Deferrals > 0 {
-			ev = append(ev, fmt.Sprintf("%d deferred attempts", h.Deferrals))
+			ev = append(ev, fmt.Sprintf("%d deferred attempt%s", h.Deferrals, plural(h.Deferrals)))
 		}
 		if h.Bounces > 0 {
 			ev = append(ev, fmt.Sprintf("%d bounced", h.Bounces))
 		}
 		if h.Queued > 0 {
-			ev = append(ev, fmt.Sprintf("%d queued recipients", h.Queued))
+			ev = append(ev, fmt.Sprintf("%d queued recipient%s", h.Queued, plural(h.Queued)))
 		}
 		detail := h.Playbook.Meaning
 		if len(h.Notes) > 0 {

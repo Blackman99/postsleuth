@@ -323,7 +323,7 @@ func stripANSI(t string) string { return reANSI.ReplaceAllString(t, "") }
 func evidence(h provider.Hit) []string {
 	var ev []string
 	if h.Deferrals > 0 {
-		ev = append(ev, fmt.Sprintf("%d deferred attempts", h.Deferrals))
+		ev = append(ev, fmt.Sprintf("%d deferred attempt%s", h.Deferrals, plural(h.Deferrals)))
 	}
 	if h.Bounces > 0 {
 		ev = append(ev, fmt.Sprintf("%d bounced", h.Bounces))
