@@ -83,7 +83,7 @@ func TestReadOnlyByDefault(t *testing.T) {
 	fakePostfix(t)
 	cs := connect(t, false)
 	ts := tools(t, cs)
-	for _, n := range []string{"postfix_doctor", "postfix_queue_summary", "postfix_queue_list", "postfix_queue_shape", "postfix_log_stats", "postfix_log_trend", "postfix_log_trace", "mail_dns_check", "postfix_config", "postfix_reason_categories"} {
+	for _, n := range []string{"postfix_doctor", "postfix_queue_summary", "postfix_queue_list", "postfix_queue_shape", "postfix_log_stats", "postfix_log_trend", "postfix_log_trace", "mail_dns_check", "postfix_config", "postfix_reason_categories", "postfix_provider_playbook"} {
 		tl, ok := ts[n]
 		if !ok {
 			t.Fatalf("missing tool %s", n)
@@ -139,6 +139,41 @@ func TestQueueAndLogTools(t *testing.T) {
 	out, _ = call(t, cs, "postfix_doctor", map[string]any{"since": "all", "skip_dns": true})
 	if out["problems"].(float64) == 0 {
 		t.Fatalf("doctor found nothing: %v", out["findings"])
+	}
+}
+
+func TestProviderPlaybookTool(t *testing.T) {
+	fakePostfix(t)
+	cs := connect(t, false)
+	if d := tools(t, cs)["postfix_provider_playbook"].Description; !strings.Contains(d, "4.7.28") || !strings.Contains(d, "S3150") || !strings.Contains(d, "TSS04") {
+		t.Fatalf("description: %s", d)
+	}
+	out, res := call(t, cs, "postfix_provider_playbook", map[string]any{"since": "all"})
+	if res.IsError || out["mode"] != "server" {
+		t.Fatalf("server %v %v", out, res.Content)
+	}
+	pbs := out["server"].(map[string]any)["playbooks"].([]any)
+	if len(pbs) != 2 || pbs[0].(map[string]any)["playbook"].(map[string]any)["id"] != "gmail-4.7.28" {
+		t.Fatalf("playbooks %v", pbs)
+	}
+	out, _ = call(t, cs, "postfix_provider_playbook", map[string]any{"since": "all", "provider": "yahoo"})
+	if len(out["server"].(map[string]any)["playbooks"].([]any)) != 0 || len(out["available"].([]any)) != 18 {
+		t.Fatalf("yahoo filter %v", out)
+	}
+	out, _ = call(t, cs, "postfix_provider_playbook", map[string]any{"reply": "550 5.7.1 Unfortunately, messages from [203.0.113.7] weren't sent. Please contact your Internet service provider since part of their network is on our block list (S3150).", "domain": "outlook.com"})
+	lk := out["lookup"].(map[string]any)
+	if lk["code"] != "S3150" || lk["temporary"] != false || lk["playbook"].(map[string]any)["id"] != "microsoft-s3150" {
+		t.Fatalf("reply %v", lk)
+	}
+	out, _ = call(t, cs, "postfix_provider_playbook", map[string]any{"id": "yahoo-tss09"})
+	if out["playbook"].(map[string]any)["provider"] != "yahoo" {
+		t.Fatalf("id %v", out)
+	}
+	if _, res = call(t, cs, "postfix_provider_playbook", map[string]any{"id": "gmail-9.9.9"}); !res.IsError {
+		t.Fatal("unknown id accepted")
+	}
+	if _, res = call(t, cs, "postfix_provider_playbook", map[string]any{"provider": "aol"}); !res.IsError {
+		t.Fatal("unknown provider accepted")
 	}
 }
 

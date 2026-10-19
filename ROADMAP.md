@@ -12,7 +12,7 @@
 
 ## v0.2
 - [x] Per-destination trend: deferral rate over time buckets (is it getting better?)
-- Provider-specific playbooks for Gmail (4.7.28 recovery steps), Microsoft (S3150 / SNDS), Yahoo
+- [x] Provider-specific playbooks for Gmail (4.7.28 recovery steps), Microsoft (S3150 / SNDS), Yahoo: `postsleuth playbook`, doctor PLAYBOOK section, MCP `postfix_provider_playbook` (18 playbooks)
 - `postfix_queue_message` tool: headers of one queued message (`postcat -h`), with redaction
 - MCP over streamable HTTP with a bearer token for remote servers
 - DNSBL lookup for the sending IP (Spamhaus ZEN, Barracuda) with resolver caveats

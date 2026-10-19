@@ -27,12 +27,13 @@ send app@example.test user2@retry.test
 send app@example.test ghost@bounce.test
 send app@example.test ceo@timeout.test
 send app@example.test someone@nxdomain.invalid
+send app@example.test bulk@gmail-like.test
 
 # wait until the immediate attempts are done: 2 retry + timeout (+ maybe nxdomain) deferred, rest gone
 for i in $(seq 1 40); do
   n=$(PS queue --json | jq '[.by_queue[] | select(.key=="deferred") | .count] | add // 0')
   b=$(docker exec "$C" sh -c 'grep -c "status=bounced" /var/log/postfix.log || true')
-  if [ "${n:-0}" -ge 3 ] && [ "${b:-0}" -ge 1 ] && docker exec "$C" grep -q "timeout.test\|192.0.2.1" /var/log/postfix.log; then break; fi
+  if [ "${n:-0}" -ge 4 ] && [ "${b:-0}" -ge 1 ] && docker exec "$C" grep -q "timeout.test\|192.0.2.1" /var/log/postfix.log; then break; fi
   sleep 2
 done
 docker exec "$C" postqueue -p || true
@@ -68,11 +69,19 @@ T=$(PS trace ghost@bounce.test --json)
 echo "$T" | jq -e '.messages[0].final_status == "bounced" and (.messages | length) >= 2' >/dev/null || fail "trace: $T"
 pass "trace follows message and its bounce notice"
 
+# --- provider playbooks (a Gmail-style 4.7.28 deferral from the retry transport) ---
+P=$(PS playbook --since 1h --json)
+echo "$P" | jq -e '.playbooks[0].playbook.id == "gmail-4.7.28" and .playbooks[0].temporary and (.playbooks[0].domains | index("gmail-like.test") != null) and .playbooks[0].queued_recipients == 1' >/dev/null || fail "playbook: $P"
+echo "$P" | jq -e '[.playbooks[].playbook.id] | length == 1' >/dev/null || fail "playbook matched non-provider reasons: $P"
+PS playbook --since 1h | grep -q "gmail_destination_concurrency_limit = 1" || fail "playbook text"
+pass "provider playbook for a Gmail 4.7.28 deferral"
+
 # --- doctor exits 1 because mail is deferred ---
 set +e; PS doctor --no-dns >/tmp/doctor.txt; ec=$?; set -e
 cat /tmp/doctor.txt
 [ $ec = 1 ] || fail "doctor exit code $ec"
 grep -q "rate_limit" /tmp/doctor.txt || fail "doctor output"
+grep -q "^PLAYBOOK" /tmp/doctor.txt || fail "doctor playbook section"
 pass "doctor report, exit 1"
 
 # --- native run inside the container (no --wrap) ---

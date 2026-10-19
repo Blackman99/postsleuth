@@ -4,7 +4,7 @@
 
 **Why isn't Postfix delivering?** postsleuth reads the queue (`postqueue -j`), the mail log and DNS, groups every stuck message by *why* it is stuck, and tells you what to do next. It works as a CLI and as an MCP server, so an AI agent can investigate a mail server without being able to touch it.
 
-![postsleuth doctor on a server with a Gmail rate limit, an Outlook blocklist and a dead host](site/demo.gif)
+![postsleuth doctor, then the Gmail 4.7.28 playbook, on a server with a Gmail rate limit, an Outlook blocklist and a dead host](site/demo.gif)
 
 <sub>Demo uses generated snapshot data (`testdata/gen.py`) via `--queue-file` / `--log`.</sub>
 
@@ -23,9 +23,12 @@ postsleuth doctor                  # queue + qshape + log + SPF/DKIM/DMARC/PTR, 
 postsleuth queue --domain .outlook.com
 postsleuth shape --by sender       # who filled the deferred queue
 postsleuth trend --domain gmail.com  # deferral rate over time — getting better?
+postsleuth playbook                # Gmail 4.7.28, Outlook S3150, Yahoo [TSS04]…: the provider's way back
 postsleuth trace bob@example.org   # one message, start to finish
 postsleuth dns example.com --ip 203.0.113.7
 ```
+
+When Gmail, Microsoft or Yahoo is the one refusing you, `playbook` (and the `PLAYBOOK` section of `doctor`) names the provider code, says whether Postfix's retries can succeed, and gives ordered recovery steps written for Postfix with links to the provider's own pages: 18 playbooks, from Gmail's 4.7.28 rate limit and 5.7.26 DMARC failures to Outlook.com's S3150 block list (SNDS, JMRP) and Yahoo's [TSS09]. `postsleuth playbook --reply "…"` looks up a single reply.
 
 Postfix in a container or on another box: `--wrap "docker exec -i mailserver"` or run it over `ssh`.
 

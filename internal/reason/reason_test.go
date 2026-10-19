@@ -18,7 +18,24 @@ func TestClassify(t *testing.T) {
 		"SASL authentication failed; server smtp.relay.example[1.2.3.4] said: 535 5.7.8 Error": "sasl_auth",
 		"TLS is required, but was not offered by host mx.example.com[1.2.3.4]":                 "tls",
 		"mail for example.com loops back to myself":                                            "loop",
-		"something nobody has seen before":                                                     "other",
+		// provider-specific replies (see internal/provider for the playbooks)
+		"host aspmx.l.google.com[192.0.2.28] said: 421-4.7.28 Gmail has detected an unusual rate of unsolicited email originating from your DKIM domain example.com. - gsmtp":        "rate_limit",
+		"host gmail-smtp-in.l.google.com[192.0.2.27] said: 421-4.7.29 Your email has been rate limited because you're not using a TLS connection. - gsmtp":                           "tls",
+		"host gmail-smtp-in.l.google.com[192.0.2.27] said: 421-4.7.0 This message is suspicious due to the very low reputation of the sending IP address. - gsmtp":                   "policy",
+		"host gmail-smtp-in.l.google.com[192.0.2.27] said: 550-5.7.28 There is an unusual rate of unsolicited email originating from your IP address. - gsmtp":                       "policy",
+		"host gmail-smtp-in.l.google.com[192.0.2.27] said: 550-5.7.1 [203.0.113.7] The IP you're using to send mail is not authorized to send email directly to our servers.":        "relay_denied",
+		"550 5.7.1 Unfortunately, messages from [203.0.113.7] weren't sent. Please contact your Internet service provider since part of their network is on our block list (S3140).": "blocklist",
+		"451 4.7.650 The mail server [203.0.113.7] has been temporarily rate limited due to IP reputation.":                                                                          "rate_limit",
+		"421 RP-001 (BAY004-MC1F3) Unfortunately, some messages from 203.0.113.7 weren't sent. Please try again.":                                                                    "rate_limit",
+		"550 SC-001 (DM1NAM02FT0123) Unfortunately, messages from 203.0.113.7 weren't sent. Please contact your Internet service provider.":                                          "blocklist",
+		"550 DY-001 (SNT004-MC1F43) Unfortunately, messages from 203.0.113.7 weren't sent.":                                                                                          "blocklist",
+		"550 5.7.515 Access denied, sending domain example.com does not meet the required authentication level.":                                                                     "auth",
+		"550 5.7.708 Service unavailable. Access denied, traffic not accepted from this IP.":                                                                                         "relay_denied",
+		"421 4.7.0 [TSS04] Messages from 203.0.113.7 temporarily deferred due to unexpected volume or user complaints":                                                               "rate_limit",
+		"421 4.7.0 [TSS09] All messages from 203.0.113.7 will be permanently deferred; Retrying will NOT succeed.":                                                                   "blocklist",
+		"553 5.7.1 [BL21] Connections will not be accepted from 203.0.113.7, because the ip is in Spamhaus's list":                                                                   "blocklist",
+		"550 5.7.9 This mail has been blocked because the sender is unauthenticated. Yahoo requires all senders to authenticate with either SPF or DKIM.":                            "auth",
+		"something nobody has seen before": "other",
 	}
 	for in, want := range cases {
 		if got := Classify(in).ID; got != want {

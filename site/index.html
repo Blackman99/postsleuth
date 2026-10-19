@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>postsleuth: why isn't Postfix delivering?</title>
-<meta name="description" content="Read-only Postfix diagnosis for you and your AI agent: queue, qshape, mail log deferral and bounce reasons, SPF/DKIM/DMARC/PTR checks. CLI + MCP server, one Go binary.">
+<meta name="description" content="Read-only Postfix diagnosis for you and your AI agent: queue, qshape, mail log deferral and bounce reasons, Gmail / Outlook / Yahoo recovery playbooks, SPF/DKIM/DMARC/PTR checks. CLI + MCP server, one Go binary.">
 <link rel="canonical" href="https://blackman99.github.io/postsleuth/">
 <link rel="icon" href="https://blackman99.github.io/postsleuth/favicon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#ece7f3">
@@ -124,9 +124,62 @@
   </div>
 </section>
 
+<section id="connections" class="connections" aria-labelledby="cx-h">
+  <div class="wrap">
+    <h2 id="cx-h"><span class="bar mul"></span>Connections with other networks</h2>
+    <p class="intro">Some closures happen on someone else's line. When Gmail, Outlook.com or Yahoo refuses you, the reply carries their code, and each of them has its own way back. <code>postsleuth playbook</code> recognises the provider and the code, says whether Postfix's retries can work, and gives the steps in order, with the provider's own pages. 18 playbooks; <code>doctor</code> shows the ones that match.</p>
+    <div class="conn" data-conn>
+      <div class="conn-sign">
+        <p class="conn-head">Connections</p>
+        <div class="conn-tabs" role="tablist" aria-label="Provider playbooks">
+          <button role="tab" id="cx-t-gmail" aria-controls="cx-gmail" aria-selected="true" class="cx-mul"><i class="rd" aria-hidden="true"></i><span class="op">Gmail<code>421 4.7.28</code></span><em>Severe delays</em></button>
+          <button role="tab" id="cx-t-ms" aria-controls="cx-ms" aria-selected="false" class="cx-ink"><i class="rd" aria-hidden="true"></i><span class="op">Outlook.com<code>550 S3150</code></span><em>Part suspended</em></button>
+          <button role="tab" id="cx-t-yahoo" aria-controls="cx-yahoo" aria-selected="false" class="cx-slate"><i class="rd" aria-hidden="true"></i><span class="op">Yahoo / AOL<code>421 [TSS04]</code></span><em>Minor delays</em></button>
+        </div>
+        <p class="conn-more">Also: Gmail 5.7.26 DMARC, PTR, TLS · Microsoft 365 banned IP, 5.7.511, 4.7.650 · Yahoo [TSS09], [BL21]… <a href="docs/#playbook">all 18</a></p>
+      </div>
+      <div class="conn-notices">
+        <article role="tabpanel" id="cx-gmail" aria-labelledby="cx-t-gmail" class="notice cx-mul">
+          <header><p class="n-code">gmail-4.7.28</p><h3>Gmail is rate limiting you</h3><p class="n-kind temp">temporary · Postfix retries</p></header>
+          <ol class="n-steps">
+            <li>Stop. Send nothing to Gmail for 10 minutes, and don't flush the queue.</li>
+            <li>Read which quota you hit: IP, netblock, DKIM, SPF or URL domain.</li>
+            <li>Reopen on one connection: a <code>gmail</code> transport with <code>gmail_destination_concurrency_limit = 1</code>.</li>
+            <li>Accepted? Add one connection at a time. Deferred again? Wait another 10 minutes.</li>
+            <li>Find the spike: a bulk send, a cold IP, a compromised account.</li>
+            <li>Keep the spam rate in Postmaster Tools under 0.10%, never 0.30%.</li>
+          </ol>
+          <p class="n-refs">Official: <a href="https://support.google.com/mail/answer/81126">Google sender guidelines</a> · <a href="https://postmaster.google.com/">Postmaster Tools</a></p>
+        </article>
+        <article role="tabpanel" id="cx-ms" aria-labelledby="cx-t-ms" class="notice cx-ink">
+          <header><p class="n-code">microsoft-s3150</p><h3>Outlook.com has your network on its block list</h3><p class="n-kind perm">permanent · retrying won't help</p></header>
+          <ol class="n-steps">
+            <li>Fix the cause first: a compromised account, a bad list, SPF/DKIM/DMARC/PTR gaps.</li>
+            <li>Sign in to SNDS and check your IP's status and complaint data.</li>
+            <li>Join JMRP to see who marks you as junk, and stop mailing them.</li>
+            <li>Ask for delisting on the Outlook.com sender support form, with the IP and the bounce line.</li>
+          </ol>
+          <p class="n-refs">Official: <a href="https://substrate.office.com/ip-domain-management-snds/Postmaster/Troubleshooting">Outlook.com Postmaster</a> · <a href="https://substrate.office.com/ip-domain-management-snds/SNDS">SNDS</a> · <a href="https://olcsupport.office.com/">sender support</a></p>
+        </article>
+        <article role="tabpanel" id="cx-yahoo" aria-labelledby="cx-t-yahoo" class="notice cx-slate">
+          <header><p class="n-code">yahoo-deferred</p><h3>Yahoo is deferring your mail</h3><p class="n-kind temp">temporary · Postfix retries</p></header>
+          <ol class="n-steps">
+            <li>Let Postfix back off. No flushing, no moving the mail to other IPs.</li>
+            <li>Cap Yahoo, AOL and the rest together: a <code>yahoo</code> transport with a process limit of 2.</li>
+            <li>Find what changed: volume, a new IP, a campaign people complain about.</li>
+            <li>Enrol your DKIM domain in Yahoo's Complaint Feedback Loop.</li>
+            <li>Still deferred after a long while? Send Yahoo a sender support request.</li>
+          </ol>
+          <p class="n-refs">Official: <a href="https://senders.yahooinc.com/smtp-error-codes/#ts-errors">Yahoo error codes</a> · <a href="https://senders.yahooinc.com/complaint-feedback-loop/">Complaint Feedback Loop</a></p>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section id="lines" class="lines" aria-labelledby="lines-h">
   <div class="wrap">
-    <h2 id="lines-h"><span class="bar jade"></span>Six stops, one line</h2>
+    <h2 id="lines-h"><span class="bar jade"></span>Seven stops, one line</h2>
   </div>
   <div class="strip" data-strip>
     <svg class="strip-svg" viewBox="0 0 1000 40" preserveAspectRatio="none" aria-hidden="true"><path d="M20,20 H980" class="sl jade"/><rect class="strain" x="8" y="14" width="26" height="12" rx="6"/></svg>
@@ -136,6 +189,7 @@
       <li><span class="dot"></span><b>log</b><code>postsleuth log --since 24h</code><p>Sent, deferred, bounced, expired, rejected per domain. Bounce causes. Domains still failing. Trace any message.</p></li>
       <li><span class="dot"></span><b>trend</b><code>postsleuth trend</code><p>Deferral rate per destination over time buckets. Improving, worsening, or flat — is Gmail getting better?</p></li>
       <li><span class="dot"></span><b>dns</b><code>postsleuth dns</code><p>MX, SPF (10-lookup limit, is your IP allowed), DKIM keys, DMARC, PTR with forward confirmation.</p></li>
+      <li><span class="dot"></span><b>playbook</b><code>postsleuth playbook</code><p>Gmail 4.7.28, Outlook S3150, Yahoo [TSS04]: the provider's own way back, step by step.</p></li>
       <li><span class="dot"></span><b>doctor</b><code>postsleuth doctor</code><p>All of it in one report with next steps. Exit code 1 when something is wrong.</p></li>
     </ol>
   </div>
@@ -167,6 +221,7 @@
       <li><span class="dot"></span><b>postfix_log_stats</b></li>
       <li><span class="dot"></span><b>postfix_log_trend</b></li>
       <li><span class="dot"></span><b>postfix_log_trace</b></li>
+      <li><span class="dot"></span><b>postfix_provider_playbook</b></li>
       <li><span class="dot"></span><b>mail_dns_check</b></li>
       <li><span class="dot"></span><b>postfix_config</b></li>
     </ol>

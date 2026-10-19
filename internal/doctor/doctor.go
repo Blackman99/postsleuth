@@ -8,6 +8,7 @@ import (
 
 	"github.com/Blackman99/postsleuth/internal/dnsauth"
 	"github.com/Blackman99/postsleuth/internal/maillog"
+	"github.com/Blackman99/postsleuth/internal/provider"
 	"github.com/Blackman99/postsleuth/internal/queue"
 )
 
@@ -25,6 +26,11 @@ type Finding struct {
 	Title    string `json:"title"`
 	Detail   string `json:"detail,omitempty"`
 	Next     string `json:"next_step,omitempty"`
+	// Provider playbook findings (area "provider") carry the full ordered
+	// steps and the provider's official references.
+	Playbook   string         `json:"playbook,omitempty"`
+	Steps      []string       `json:"steps,omitempty"`
+	References []provider.Ref `json:"references,omitempty"`
 }
 
 // Report is the combined diagnosis.
@@ -37,6 +43,7 @@ type Report struct {
 	Log         *LogResult        `json:"log,omitempty"`
 	LogError    string            `json:"log_error,omitempty"`
 	Trend       *TrendResult      `json:"trend,omitempty"`
+	Playbooks   []provider.Hit    `json:"provider_playbooks,omitempty"`
 	DNS         *dnsauth.Report   `json:"dns,omitempty"`
 	DNSError    string            `json:"dns_error,omitempty"`
 	Config      map[string]string `json:"config,omitempty"`
@@ -68,21 +75,28 @@ func (e *Env) Run(ctx context.Context, o Options) Report {
 		r.Config = ConfigView(cfg)
 	}
 	r.Identity = e.Identity(ctx)
+	var fullQueue *queue.Summary
+	var fullLog *maillog.Stats
 	if msgs, err := e.Queue(ctx); err != nil {
 		r.QueueError = err.Error()
 		r.add(SevWarn, "queue", "could not read the queue", err.Error(), "run as a user allowed to run postqueue (authorized_mailq_users), or pass --queue-file")
 	} else {
 		s := queue.Summarize(msgs, now, o.Top)
 		r.Queue = &s
+		all := queue.Summarize(msgs, now, 0)
+		fullQueue = &all
 		sh := queue.BuildShape(msgs, now, "deferred", "recipient", o.Top)
 		r.Shape = &sh
 		r.queueFindings(s, msgs, now)
 	}
 	if !o.SkipLog {
-		if lr, err := e.LogStats(ctx, o.Window, "", o.Top); err != nil {
+		if lr, err := e.LogStats(ctx, o.Window, "", 0); err != nil {
 			r.LogError = err.Error()
 			r.add(SevInfo, "log", "mail log not analysed", err.Error(), "")
 		} else {
+			all := lr.Stats
+			fullLog = &all
+			lr.Stats = lr.Stats.Top(o.Top)
 			r.Log = &lr
 			r.logFindings(lr)
 			if tr, err := e.LogTrend(ctx, o.Window, 0, "", o.Top); err == nil && len(tr.Trend.Domains) > 0 {
@@ -90,6 +104,10 @@ func (e *Env) Run(ctx context.Context, o Options) Report {
 				r.trendFindings(tr)
 			}
 		}
+	}
+	if fullQueue != nil || fullLog != nil {
+		r.Playbooks = CollectPlaybooks(fullQueue, fullLog, "")
+		r.playbookFindings()
 	}
 	if !o.SkipDNS {
 		dom := o.Domain
@@ -126,7 +144,7 @@ func (e *Env) Run(ctx context.Context, o Options) Report {
 }
 
 func (r *Report) add(sev, area, title, detail, next string) {
-	r.Findings = append(r.Findings, Finding{sev, area, title, detail, next})
+	r.Findings = append(r.Findings, Finding{Severity: sev, Area: area, Title: title, Detail: detail, Next: next})
 	switch sev {
 	case SevProblem:
 		r.Problems++

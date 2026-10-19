@@ -13,6 +13,7 @@ import (
 	"github.com/Blackman99/postsleuth/internal/dnsauth"
 	"github.com/Blackman99/postsleuth/internal/doctor"
 	"github.com/Blackman99/postsleuth/internal/maillog"
+	"github.com/Blackman99/postsleuth/internal/provider"
 	"github.com/Blackman99/postsleuth/internal/queue"
 	"github.com/Blackman99/postsleuth/internal/reason"
 )
@@ -28,7 +29,7 @@ func ptr[T any](v T) *T { return &v }
 var readOnly = &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(false)}
 
 const instructions = `postsleuth inspects a Postfix mail server: the queue (postqueue -j), a qshape-style age-by-domain matrix, the mail log (deferral reasons, bounce causes, per-domain outcomes, per-destination deferral trends, message traces) and the DNS records receivers check (MX, SPF, DKIM, DMARC, PTR/FCrDNS).
-Start with postfix_doctor for an overview, then drill down. Every failure is classified (rate_limit, auth, ptr, blocklist, timeout, tls, dns, recipient_unknown, ...) with a hint. Tools that change the queue only exist when the operator started the server with --allow-mutations, and even then require confirm=true.`
+Start with postfix_doctor for an overview, then drill down. Every failure is classified (rate_limit, auth, ptr, blocklist, timeout, tls, dns, recipient_unknown, ...) with a hint. When Gmail, Microsoft (Outlook.com / Microsoft 365) or Yahoo/AOL is the receiver that is refusing or throttling mail, postfix_provider_playbook returns that provider's ordered recovery steps and official links (e.g. Gmail 421 4.7.28, Outlook.com S3150 / SNDS, Yahoo [TSS04]). Tools that change the queue only exist when the operator started the server with --allow-mutations, and even then require confirm=true.`
 
 func parseWindow(s string, def time.Duration) (time.Duration, error) {
 	if s == "" {
@@ -124,6 +125,40 @@ type DoctorIn struct {
 	Domain  string   `json:"domain,omitempty" jsonschema:"sending domain for DNS checks"`
 	IPs     []string `json:"ips,omitempty" jsonschema:"sending IPs"`
 	SkipDNS bool     `json:"skip_dns,omitempty" jsonschema:"do not run DNS checks"`
+}
+
+// PlaybookIn are arguments.
+type PlaybookIn struct {
+	Reply    string `json:"reply,omitempty" jsonschema:"one SMTP reply or delay reason to look up, as it appears in the log or postqueue (e.g. 'host gmail-smtp-in.l.google.com[...] said: 421-4.7.28 ...'); when set the queue and log are not read"`
+	Domain   string `json:"domain,omitempty" jsonschema:"recipient domain of reply, used to recognise the provider when the reply names no host (e.g. outlook.com)"`
+	ID       string `json:"id,omitempty" jsonschema:"return this one playbook, e.g. gmail-4.7.28, microsoft-s3150, yahoo-deferred (see available)"`
+	Provider string `json:"provider,omitempty" jsonschema:"only this provider when scanning the server: gmail, microsoft or yahoo"`
+	Since    string `json:"since,omitempty" jsonschema:"log window when scanning the server, e.g. 1h, 24h (default), 7d, or all"`
+}
+
+// PlaybookSummary names one built-in playbook.
+type PlaybookSummary struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+	Codes    string `json:"codes"`
+	Title    string `json:"title"`
+}
+
+// PlaybookOut is the result; which field is set depends on mode.
+type PlaybookOut struct {
+	Mode      string                 `json:"mode" jsonschema:"server (queue and log were scanned), reply (one reply was looked up) or id (one playbook by id)"`
+	Server    *doctor.PlaybookResult `json:"server,omitempty" jsonschema:"mode server: playbooks for what is failing, with evidence counts, codes seen and affected domains, most deliveries affected first"`
+	Lookup    *doctor.ReplyLookup    `json:"lookup,omitempty" jsonschema:"mode reply: provider, code, whether Postfix retries, category, and the playbook (null if none applies)"`
+	Playbook  *provider.Playbook     `json:"playbook,omitempty" jsonschema:"mode id: the playbook"`
+	Available []PlaybookSummary      `json:"available,omitempty" jsonschema:"every built-in playbook id; included when nothing matched"`
+}
+
+func available() []PlaybookSummary {
+	out := []PlaybookSummary{}
+	for _, p := range provider.All() {
+		out = append(out, PlaybookSummary{ID: p.ID, Provider: p.Provider, Codes: p.Codes, Title: p.Title})
+	}
+	return out
 }
 
 // ConfigOut is the result.
@@ -308,6 +343,49 @@ func New(env *doctor.Env, o Options) *mcp.Server {
 				return nil, ConfigOut{}, err
 			}
 			return nil, ConfigOut{Settings: doctor.ConfigView(cfg), Note: "subset of postconf -n; unset parameters use Postfix defaults"}, nil
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "postfix_provider_playbook", Annotations: readOnly,
+		Description: "Recovery playbooks for the big mailbox providers: Gmail / Google Workspace (421 4.7.28 rate limit, 5.7.26-5.7.32 SPF/DKIM/DMARC, PTR, TLS, reputation), Microsoft Outlook.com / Microsoft 365 (S3150 block list with SNDS/JMRP, 5.7.606-649 banned IP, 5.7.511, 4.7.650, SC/DY/OU/RP codes, 5.7.515, 5.7.705-750) and Yahoo / AOL ([TSS04]/[TS*] deferrals, [TSS09], [BL21]/[BL23], 5.7.9). " +
+			"Each playbook says what the code means, whether Postfix will retry or retrying is pointless, ordered steps (Postfix-specific, e.g. a dedicated transport with destination_concurrency_limit = 1 for Gmail 4.7.28; never flush the queue at a throttling receiver), and the provider's official pages. " +
+			"Modes: with no arguments, scans the queue and the mail log (since, default 24h) and returns the playbooks for what is failing here with evidence counts and affected domains; with reply, looks up one pasted SMTP reply without reading the server; with id, returns one playbook. Read-only: it never contacts the providers or changes the queue."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in PlaybookIn) (*mcp.CallToolResult, PlaybookOut, error) {
+			switch {
+			case strings.TrimSpace(in.ID) != "":
+				p, ok := provider.Get(strings.ToLower(strings.TrimSpace(in.ID)))
+				if !ok {
+					ids := []string{}
+					for _, a := range available() {
+						ids = append(ids, a.ID)
+					}
+					return nil, PlaybookOut{}, fmt.Errorf("unknown playbook id %q; valid ids: %s", in.ID, strings.Join(ids, ", "))
+				}
+				return nil, PlaybookOut{Mode: "id", Playbook: &p}, nil
+			case strings.TrimSpace(in.Reply) != "":
+				r := doctor.LookupReply(in.Reply, in.Domain)
+				out := PlaybookOut{Mode: "reply", Lookup: &r}
+				if r.Playbook == nil {
+					out.Available = available()
+				}
+				return nil, out, nil
+			}
+			only := strings.ToLower(strings.TrimSpace(in.Provider))
+			if only != "" && provider.Name(only) == "" {
+				return nil, PlaybookOut{}, fmt.Errorf("unknown provider %q; use gmail, microsoft or yahoo", in.Provider)
+			}
+			w, err := parseWindow(in.Since, 24*time.Hour)
+			if err != nil {
+				return nil, PlaybookOut{}, err
+			}
+			r, err := env.ProviderPlaybooks(ctx, w, only)
+			if err != nil {
+				return nil, PlaybookOut{}, err
+			}
+			out := PlaybookOut{Mode: "server", Server: &r}
+			if len(r.Playbooks) == 0 {
+				out.Available = available()
+			}
+			return nil, out, nil
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "postfix_reason_categories", Annotations: readOnly,

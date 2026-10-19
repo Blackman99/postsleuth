@@ -174,6 +174,62 @@
   if (reduce) g.classList.add('on');
   else new IntersectionObserver((es, o) => { if (es[0].isIntersecting) { g.classList.add('on'); o.disconnect(); } }, { threshold: 0.35 }).observe(m);
 
+
+  /* ---------- connections: provider playbook notices ---------- */
+  const conn = document.querySelector('[data-conn]');
+  if (conn) {
+    conn.classList.add('js');
+    const tabs = [...conn.querySelectorAll('[role=tab]')];
+    const panels = tabs.map(t => document.getElementById(t.getAttribute('aria-controls')));
+    let run = 0;
+    // a train runs down the line and each step lights as it passes
+    function ride(panel) {
+      const ol = panel.querySelector('.n-steps');
+      const steps = [...ol.children].filter(n => n.tagName === 'LI');
+      steps.forEach(li => li.classList.remove('lit'));
+      if (reduce) { steps.forEach(li => li.classList.add('lit')); return; }
+      let tr = ol.querySelector('.n-train');
+      if (!tr) { tr = document.createElement('span'); tr.className = 'n-train'; tr.setAttribute('aria-hidden', 'true'); ol.appendChild(tr); }
+      const id = ++run, t0 = performance.now(), dur = 380 * steps.length + 300;
+      const top = steps[0].offsetTop + 8, end = steps[steps.length - 1].offsetTop + 8;
+      function f(t) {
+        if (id !== run) return;
+        const k = Math.min(1, (t - t0) / dur);
+        const e = 1 - Math.pow(1 - k, 2);
+        const y = top + (end - top) * e;
+        tr.style.transform = `translateY(${y.toFixed(1)}px)`;
+        steps.forEach(li => { if (li.offsetTop + 4 <= y + 4) li.classList.add('lit'); });
+        if (k < 1) requestAnimationFrame(f);
+        else { steps.forEach(li => li.classList.add('lit')); tr.style.opacity = 0; }
+      }
+      tr.style.transition = 'none'; tr.style.transform = `translateY(${top}px)`; tr.style.opacity = 1; void tr.offsetWidth; tr.style.transition = '';
+      requestAnimationFrame(f);
+    }
+    function select(i, focus) {
+      tabs.forEach((t, j) => {
+        const on = i === j;
+        t.setAttribute('aria-selected', on);
+        t.tabIndex = on ? 0 : -1;
+        panels[j].hidden = !on;
+      });
+      if (focus) tabs[i].focus();
+      ride(panels[i]);
+    }
+    tabs.forEach((t, i) => {
+      t.addEventListener('click', () => select(i));
+      t.addEventListener('keydown', e => {
+        const k = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+        if (k) { e.preventDefault(); select((i + k + tabs.length) % tabs.length, true); }
+        else if (e.key === 'Home') { e.preventDefault(); select(0, true); }
+        else if (e.key === 'End') { e.preventDefault(); select(tabs.length - 1, true); }
+      });
+    });
+    tabs.forEach((t, j) => { t.tabIndex = j === 0 ? 0 : -1; panels[j].hidden = j !== 0; });
+    panels.forEach(p => p.tabIndex = 0);
+    if (reduce) ride(panels[0]);
+    else new IntersectionObserver((es, o) => { if (es[0].isIntersecting) { o.disconnect(); ride(panels[0]); } }, { threshold: 0.45 }).observe(conn);
+  }
+
   /* ---------- points lever ---------- */
   const lever = document.getElementById('lever');
   const sec = lever.closest('.points');

@@ -1,3 +1,4 @@
 retry.test    retry:4.7.0 Too many messages from your IP, rate limit exceeded, try again later
 bounce.test   error:5.1.1 Recipient address rejected: User unknown in virtual mailbox table
 timeout.test  smtp:[192.0.2.1]:25
+gmail-like.test retry:4.7.28 Gmail has detected an unusual rate of unsolicited mail originating from your IP address. To protect our users from spam, mail sent from your IP address has been temporarily rate limited. - gsmtp

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Blackman99/postsleuth/internal/provider"
 	"github.com/Blackman99/postsleuth/internal/reason"
 )
 
@@ -142,6 +143,9 @@ type ReasonCount struct {
 	Count    int      `json:"recipients"`
 	Domains  []string `json:"domains"`
 	Example  string   `json:"example"`
+	// Provider (gmail, microsoft, yahoo) and provider playbook id, if any.
+	Provider string `json:"provider,omitempty"`
+	Playbook string `json:"playbook,omitempty"`
 }
 
 // Summary is an overview of the queue.
@@ -208,7 +212,8 @@ func Summarize(msgs []Message, now time.Time, top int) Summary {
 			a := reasons[key]
 			if a == nil {
 				c := reason.Classify(r.DelayReason)
-				a = &agg{rc: ReasonCount{Reason: key, Category: c.ID, Hint: c.Hint, Example: r.DelayReason}, domains: map[string]bool{}}
+				pm := provider.Lookup(r.DelayReason, d)
+				a = &agg{rc: ReasonCount{Reason: key, Category: c.ID, Hint: c.Hint, Example: r.DelayReason, Provider: pm.Provider, Playbook: pm.ID}, domains: map[string]bool{}}
 				reasons[key] = a
 			}
 			a.rc.Count++

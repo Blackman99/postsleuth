@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Blackman99/postsleuth/internal/provider"
 	"github.com/Blackman99/postsleuth/internal/reason"
 )
 
@@ -29,6 +30,11 @@ type ReasonStat struct {
 	Domains  []string `json:"domains,omitempty"`
 	Remotes  []string `json:"remote_hosts,omitempty"`
 	Example  string   `json:"example"`
+	// Provider is gmail, microsoft or yahoo when the reply came from one of
+	// them; Playbook is the id of the matching provider playbook, if any
+	// (postsleuth playbook ID).
+	Provider string `json:"provider,omitempty"`
+	Playbook string `json:"playbook,omitempty"`
 }
 
 // DKIMSeen is a selector observed in opendkim/rspamd signing log lines.
@@ -111,7 +117,8 @@ func addReason(m map[string]*reasonAgg, text, domain string) {
 	ag := m[key]
 	if ag == nil {
 		c := reason.Classify(text)
-		ag = &reasonAgg{rs: ReasonStat{Reason: key, Category: c.ID, Hint: c.Hint, Example: text}, domains: map[string]bool{}, remotes: map[string]bool{}}
+		pm := provider.Lookup(text, domain)
+		ag = &reasonAgg{rs: ReasonStat{Reason: key, Category: c.ID, Hint: c.Hint, Example: text, Provider: pm.Provider, Playbook: pm.ID}, domains: map[string]bool{}, remotes: map[string]bool{}}
 		m[key] = ag
 	}
 	ag.rs.Count++
@@ -259,6 +266,24 @@ func (a *Aggregator) Result(top int) Stats {
 		s.DKIM = append(s.DKIM, *d)
 	}
 	sort.Slice(s.DKIM, func(i, j int) bool { return s.DKIM[i].Count > s.DKIM[j].Count })
+	return s
+}
+
+// Top returns a copy with every list cut to at most n entries (0 = all).
+func (s Stats) Top(n int) Stats {
+	if n <= 0 {
+		return s
+	}
+	cut := func(l []ReasonStat) []ReasonStat {
+		if len(l) > n {
+			return l[:n]
+		}
+		return l
+	}
+	if len(s.Domains) > n {
+		s.Domains = s.Domains[:n]
+	}
+	s.Deferrals, s.Bounces, s.Rejects = cut(s.Deferrals), cut(s.Bounces), cut(s.Rejects)
 	return s
 }
 

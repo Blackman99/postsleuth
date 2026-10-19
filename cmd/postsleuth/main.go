@@ -21,6 +21,7 @@ import (
 	"github.com/Blackman99/postsleuth/internal/doctor"
 	"github.com/Blackman99/postsleuth/internal/mcpserver"
 	"github.com/Blackman99/postsleuth/internal/postfix"
+	"github.com/Blackman99/postsleuth/internal/provider"
 	"github.com/Blackman99/postsleuth/internal/queue"
 )
 
@@ -43,6 +44,8 @@ Usage:
   postsleuth shape [QUEUE]       qshape-style age x domain matrix (default: deferred)
   postsleuth log                 outcomes, deferral reasons, bounce causes from the mail log
   postsleuth trend               per-destination deferral rate over time (is it getting better?)
+  postsleuth playbook [ID]       Gmail / Microsoft / Yahoo recovery steps for what is failing here
+                                 (gmail|microsoft|yahoo to filter, --reply "TEXT" for one reply, --list)
   postsleuth trace ID|ADDRESS    every log line for a message
   postsleuth dns [DOMAIN]        MX, SPF, DKIM, DMARC, PTR/FCrDNS checks
   postsleuth config              delivery-relevant postconf -n settings
@@ -195,6 +198,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return cmdLog(ctx, fs, &c, args, stdout)
 		case "trend":
 			return cmdTrend(ctx, fs, &c, args, stdout)
+		case "playbook", "playbooks":
+			return cmdPlaybook(ctx, fs, &c, args, stdout)
 		case "trace":
 			return cmdTrace(ctx, fs, &c, args, stdout)
 		case "dns":
@@ -400,6 +405,65 @@ func cmdTrend(ctx context.Context, fs *flag.FlagSet, c *common, args []string, w
 		return printJSON(w, r)
 	}
 	doctor.WriteTrend(w, c.style(), r)
+	return nil
+}
+
+func cmdPlaybook(ctx context.Context, fs *flag.FlagSet, c *common, args []string, w io.Writer) error {
+	var reply, domain string
+	var list bool
+	fs.StringVar(&reply, "reply", "", "look up one SMTP reply or delay reason instead of reading the queue and log")
+	fs.StringVar(&domain, "domain", "", "recipient domain of --reply, when the reply names no host")
+	fs.BoolVar(&list, "list", false, "list every built-in playbook")
+	pos, err := parseAll(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) > 1 {
+		return fmt.Errorf("usage: postsleuth playbook [ID|gmail|microsoft|yahoo] [--reply TEXT] [--list]")
+	}
+	st := c.style()
+	switch {
+	case list:
+		if c.jsonOut {
+			return printJSON(w, map[string]any{"providers": provider.Providers, "playbooks": provider.All()})
+		}
+		doctor.WritePlaybookIndex(w, st)
+		return nil
+	case strings.TrimSpace(reply) != "":
+		r := doctor.LookupReply(reply, domain)
+		if c.jsonOut {
+			return printJSON(w, r)
+		}
+		doctor.WriteReplyLookup(w, st, r)
+		return nil
+	}
+	only := ""
+	if len(pos) == 1 {
+		arg := strings.ToLower(pos[0])
+		if p, ok := provider.Get(arg); ok {
+			if c.jsonOut {
+				return printJSON(w, p)
+			}
+			doctor.WritePlaybook(w, st, p)
+			return nil
+		}
+		if provider.Name(arg) == "" {
+			return fmt.Errorf("unknown playbook or provider %q (see postsleuth playbook --list)", pos[0])
+		}
+		only = arg
+	}
+	win, err := parseWindow(c.since)
+	if err != nil {
+		return err
+	}
+	r, err := c.env().ProviderPlaybooks(ctx, win, only)
+	if err != nil {
+		return err
+	}
+	if c.jsonOut {
+		return printJSON(w, r)
+	}
+	doctor.WritePlaybooks(w, st, r)
 	return nil
 }
 

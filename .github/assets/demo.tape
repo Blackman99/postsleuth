@@ -7,7 +7,7 @@ Set Shell "bash"
 Set FontSize 14
 Set FontFamily "DM Mono"
 Set Width 1280
-Set Height 860
+Set Height 1160
 Set Padding 26
 Set Margin 0
 Set BorderRadius 0
@@ -25,6 +25,15 @@ Type "postsleuth doctor --queue-file queue.json --log mail.log --no-dns"
 Sleep 400ms
 Enter
 Sleep 9s
+
+Hide
+Type "clear"
+Enter
+Show
+Type "postsleuth playbook gmail --queue-file queue.json --log mail.log"
+Sleep 400ms
+Enter
+Sleep 8s
 
 Hide
 Type "clear"
