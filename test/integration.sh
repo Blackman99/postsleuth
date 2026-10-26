@@ -54,6 +54,24 @@ L=$(PS queue --list --domain retry.test --json)
 [ "$(echo "$L" | jq length)" = 2 ] || fail "queue --list filter: $L"
 ID=$(echo "$L" | jq -r '.[0].queue_id')
 pass "queue --list filter (id $ID)"
+ID2=$(echo "$L" | jq -r '.[1].queue_id')
+
+# --- one queued message: postcat -e -h -q through --wrap, redacted by default ---
+MS=$(PS message "$ID" --json)
+echo "$MS" | jq -e --arg id "$ID" '.queue_id == $id and .queue == "deferred" and .redacted and .message_size > 0 and .age_seconds >= 0' >/dev/null || fail "message: $MS"
+echo "$MS" | jq -e '.sender == "[user-1]@example.test" and .recipients[0].domain == "retry.test" and (.recipients[0].address | startswith("[user-")) and .recipients[0].category == "rate_limit"' >/dev/null || fail "message envelope: $MS"
+echo "$MS" | jq -e '(.hops | length) >= 1 and .hops[0].local' >/dev/null || fail "message hops: $MS"
+echo "$MS" | jq -e '[.headers[] | select(.name == "Subject")][0].value | startswith("[redacted")' >/dev/null || fail "message subject: $MS"
+echo "$MS" | grep -qE 'user[12]@|app@|hello' && fail "message leaks a local part or the body: $MS"
+PS message "$ID" | grep -q "^ROUTE" || fail "message text"
+PS message "$ID" --json --unredacted | jq -e '.recipients[0].address | test("^user[12]@retry.test$")' >/dev/null || fail "message --unredacted"
+for bad in ALL "$ID;id" "../$ID"; do
+  set +e; out=$(PS message "$bad" 2>&1); ec=$?; set -e
+  [ $ec = 2 ] && echo "$out" | grep -qi "queue ID\|usage" || fail "message $bad accepted: $ec $out"
+done
+set +e; out=$(PS message ABCDEF123456 2>&1); ec=$?; set -e
+[ $ec != 0 ] && echo "$out" | grep -q "not in the queue" || fail "message for a delivered ID: $ec $out"
+pass "message headers of a real queued message (redacted, strict IDs)"
 
 # --- log (maillog_file discovered via postconf, read through --wrap) ---
 G=$(PS log --since 1h --json)
@@ -124,12 +142,18 @@ rpc(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clie
 p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"); p.stdin.flush()
 tools = [t["name"] for t in rpc(2, "tools/list", {})["result"]["tools"]]
 res = rpc(3, "tools/call", {"name": "postfix_queue_summary", "arguments": {"queue": "deferred"}})["result"]
-print(json.dumps({"tools": tools, "summary": res.get("structuredContent")}))
+out = {"tools": tools, "summary": res.get("structuredContent")}
+qid = __import__("os").environ.get("QID")
+if qid:
+    out["message"] = rpc(4, "tools/call", {"name": "postfix_queue_message", "arguments": {"queue_id": qid}})["result"].get("structuredContent")
+    out["all"] = rpc(5, "tools/call", {"name": "postfix_queue_message", "arguments": {"queue_id": "ALL"}})["result"].get("isError")
+print(json.dumps(out))
 p.stdin.close(); p.wait(timeout=10)
 PY
 }
-M=$(mcp "$BIN" mcp --wrap "docker exec -i $C")
-echo "$M" | jq -e '.tools | index("postfix_queue_summary") != null and index("postfix_queue_delete") == null' >/dev/null || fail "mcp tools: $M"
+M=$(QID="$ID2" mcp "$BIN" mcp --wrap "docker exec -i $C")
+echo "$M" | jq -e '.tools | index("postfix_queue_summary") != null and index("postfix_queue_message") != null and index("postfix_queue_delete") == null' >/dev/null || fail "mcp tools: $M"
+echo "$M" | jq -e --arg id "$ID2" '.message.queue_id == $id and .message.redacted and (.message.recipients[0].address | startswith("[user-")) and .all == true' >/dev/null || fail "mcp message: $M"
 echo "$M" | jq -e '.summary.messages >= 2' >/dev/null || fail "mcp call: $M"
 M=$(mcp "$BIN" mcp --allow-mutations --wrap "docker exec -i $C")
 echo "$M" | jq -e '.tools | index("postfix_queue_delete") != null' >/dev/null || fail "mcp mutations: $M"

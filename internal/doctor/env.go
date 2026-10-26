@@ -14,6 +14,7 @@ import (
 
 	"github.com/Blackman99/postsleuth/internal/dnsauth"
 	"github.com/Blackman99/postsleuth/internal/maillog"
+	"github.com/Blackman99/postsleuth/internal/message"
 	"github.com/Blackman99/postsleuth/internal/postfix"
 	"github.com/Blackman99/postsleuth/internal/queue"
 )
@@ -23,8 +24,10 @@ type Env struct {
 	Runner    postfix.Runner
 	Logs      postfix.LogSource
 	QueueFile string // read postqueue -j output from this file instead of running postqueue
-	Resolver  dnsauth.Resolver
-	Now       func() time.Time
+	// MessageFile: read saved "postcat -e -h -q ID" output instead of running postcat.
+	MessageFile string
+	Resolver    dnsauth.Resolver
+	Now         func() time.Time
 }
 
 func (e *Env) now() time.Time {
@@ -51,6 +54,55 @@ func (e *Env) Queue(ctx context.Context) ([]queue.Message, error) {
 		return nil, err
 	}
 	return queue.Parse(bytes.NewReader(data))
+}
+
+// Message reads the envelope and headers of one queued message (postcat
+// -e -h -q ID; never the body) and joins them with its postqueue -j entry for
+// the delay reasons. With redact (always on over MCP) local parts, display
+// names, subjects and other free text are hidden; secret-like headers are
+// removed either way.
+func (e *Env) Message(ctx context.Context, id string, redact bool) (message.Report, error) {
+	if !postfix.ValidQueueID(id) {
+		return message.Report{}, fmt.Errorf("invalid queue ID %q: %s", id, postfix.QueueIDHelp)
+	}
+	var raw, src string
+	if e.MessageFile != "" {
+		var data []byte
+		var err error
+		if e.MessageFile == "-" {
+			data, err = io.ReadAll(os.Stdin)
+		} else {
+			data, err = os.ReadFile(e.MessageFile)
+		}
+		if err != nil {
+			return message.Report{}, err
+		}
+		raw, src = string(data), e.MessageFile
+	} else {
+		out, err := e.Runner.QueueMessage(ctx, id)
+		if err != nil {
+			return message.Report{}, err
+		}
+		raw, src = out, "postcat -e -h -q "+id
+	}
+	now := e.now()
+	p := message.Parse(raw, now.Location())
+	if p.QueueID != "" && p.QueueID != id {
+		return message.Report{}, fmt.Errorf("%s holds message %s, not %s", src, p.QueueID, id)
+	}
+	if p.QueueID == "" {
+		p.QueueID = id
+	}
+	var entry *queue.Message
+	if msgs, err := e.Queue(ctx); err == nil {
+		for i := range msgs {
+			if msgs[i].QueueID == id {
+				entry = &msgs[i]
+				break
+			}
+		}
+	}
+	return message.Build(p, message.Options{Redact: redact, Now: now, Entry: entry, Source: src}), nil
 }
 
 // Config returns `postconf -n` (empty map when Postfix is not reachable).

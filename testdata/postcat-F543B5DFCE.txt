@@ -1,0 +1,55 @@
+*** ENVELOPE RECORDS deferred/F/F543B5DFCE ***
+message_size:           37649             812               2               0           37649               0
+message_arrival_time: Mon Oct 12 02:03:00 2026
+create_time: Mon Oct 12 02:03:00 2026
+named_attribute: rewrite_context=remote
+sender_fullname: 
+sender: alerts@example.com
+named_attribute: log_client_name=app01.internal
+named_attribute: log_client_address=10.0.0.12
+named_attribute: log_message_origin=app01.internal[10.0.0.12]
+named_attribute: log_helo_name=app01.internal
+named_attribute: log_protocol_name=ESMTP
+named_attribute: client_name=app01.internal
+named_attribute: reverse_client_name=app01.internal
+named_attribute: client_address=10.0.0.12
+named_attribute: client_port=40312
+named_attribute: server_address=10.0.0.2
+named_attribute: server_port=25
+named_attribute: helo_name=app01.internal
+named_attribute: protocol_name=ESMTPS
+named_attribute: client_address_type=2
+named_attribute: dsn_orig_rcpt=rfc822;yuki342@gmail.com
+original_recipient: yuki342@gmail.com
+recipient: yuki342@gmail.com
+named_attribute: dsn_orig_rcpt=rfc822;oncall@example.org
+original_recipient: oncall@example.org
+done_recipient: oncall@example.org
+*** MESSAGE CONTENTS deferred/F/F543B5DFCE ***
+Received: from app01.internal (app01.internal [10.0.0.12])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (2048 bits) server-digest SHA256)
+	(No client certificate requested)
+	by mail.example.com (Postfix) with ESMTPS id F543B5DFCE;
+	Mon, 12 Oct 2026 02:03:00 +0800 (CST)
+Received: by app01.internal (Postfix, from userid 1001)
+	id 4bNqJx2rG9z1Hk; Mon, 12 Oct 2026 02:02:59 +0800 (CST)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=example.com;
+	s=mail; t=1791741780; bh=Zm9vYmFyYmF6cXV4cXV1eGZvb2JhcmJhenF1eHF1dXg=;
+	h=From:To:Subject:Date:Message-ID:List-Unsubscribe;
+	b=c2lnbmF0dXJlLXRoYXQtZG9lcy1ub3QtbWF0dGVyLWhlcmUtaXQtaXMtYW5vbnltaXNlZA
+	 aGVyZS1pcy1zb21lLW1vcmUtYmFzZTY0LWZvci10aGUtc2lnbmF0dXJl
+From: "Example Alerts" <alerts@example.com>
+To: Jamie Smith <yuki342@gmail.com>, On-call <oncall@example.org>
+Subject: [ALERT] db-3 disk usage above 90% for 15 minutes
+Date: Mon, 12 Oct 2026 02:02:59 +0800 (CST)
+Message-ID: <1791741780.4bNqJx2rG9@app01.example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="=_b1_9f8e7d6c"
+Precedence: bulk
+List-Unsubscribe: <mailto:unsubscribe@example.com?subject=unsub-f543b5dfce>
+X-Mailer: alertd 4.2.1
+X-Api-Key: alertd-demo-key-9f8e7d6c5b4a3928
+*** HEADER EXTRACTED deferred/F/F543B5DFCE ***
+named_attribute: encoding=8bit
+*** MESSAGE FILE END deferred/F/F543B5DFCE ***

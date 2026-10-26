@@ -13,6 +13,7 @@ import (
 	"github.com/Blackman99/postsleuth/internal/dnsauth"
 	"github.com/Blackman99/postsleuth/internal/doctor"
 	"github.com/Blackman99/postsleuth/internal/maillog"
+	"github.com/Blackman99/postsleuth/internal/message"
 	"github.com/Blackman99/postsleuth/internal/provider"
 	"github.com/Blackman99/postsleuth/internal/queue"
 	"github.com/Blackman99/postsleuth/internal/reason"
@@ -28,8 +29,8 @@ func ptr[T any](v T) *T { return &v }
 
 var readOnly = &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(false)}
 
-const instructions = `postsleuth inspects a Postfix mail server: the queue (postqueue -j), a qshape-style age-by-domain matrix, the mail log (deferral reasons, bounce causes, per-domain outcomes, per-destination deferral trends, message traces) and the DNS records receivers check (MX, SPF, DKIM, DMARC, PTR/FCrDNS).
-Start with postfix_doctor for an overview, then drill down. Every failure is classified (rate_limit, auth, ptr, blocklist, timeout, tls, dns, recipient_unknown, ...) with a hint. When Gmail, Microsoft (Outlook.com / Microsoft 365) or Yahoo/AOL is the receiver that is refusing or throttling mail, postfix_provider_playbook returns that provider's ordered recovery steps and official links (e.g. Gmail 421 4.7.28, Outlook.com S3150 / SNDS, Yahoo [TSS04]). Tools that change the queue only exist when the operator started the server with --allow-mutations, and even then require confirm=true.`
+const instructions = `postsleuth inspects a Postfix mail server: the queue (postqueue -j), a qshape-style age-by-domain matrix, the mail log (deferral reasons, bounce causes, per-domain outcomes, per-destination deferral trends, message traces), single queued messages (envelope and headers, redacted, never the body) and the DNS records receivers check (MX, SPF, DKIM, DMARC, PTR/FCrDNS).
+Start with postfix_doctor for an overview, then drill down; postfix_queue_message shows why one specific message is stuck and what its headers reveal (route, DKIM alignment, unsubscribe headers). Every failure is classified (rate_limit, auth, ptr, blocklist, timeout, tls, dns, recipient_unknown, ...) with a hint. When Gmail, Microsoft (Outlook.com / Microsoft 365) or Yahoo/AOL is the receiver that is refusing or throttling mail, postfix_provider_playbook returns that provider's ordered recovery steps and official links (e.g. Gmail 421 4.7.28, Outlook.com S3150 / SNDS, Yahoo [TSS04]). Tools that change the queue only exist when the operator started the server with --allow-mutations, and even then require confirm=true.`
 
 func parseWindow(s string, def time.Duration) (time.Duration, error) {
 	if s == "" {
@@ -45,6 +46,12 @@ func parseWindow(s string, def time.Duration) (time.Duration, error) {
 		}
 	}
 	return time.ParseDuration(s)
+}
+
+// QueueMessageIn are arguments. There is deliberately no option to turn
+// redaction off over MCP.
+type QueueMessageIn struct {
+	QueueID string `json:"queue_id" jsonschema:"one Postfix queue ID, e.g. 4F2A1C3B9D (short) or 4bNqJx2rG9z1Hk (long), from postfix_queue_list"`
 }
 
 // QueueSummaryIn are arguments.
@@ -326,6 +333,13 @@ func New(env *doctor.Env, o Options) *mcp.Server {
 			}
 			msgs, src, err := env.Trace(ctx, in.Query, w, in.Limit)
 			return nil, TraceOut{Source: src, Messages: msgs}, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "postfix_queue_message", Annotations: readOnly,
+		Description: "One queued message, from its queue file (postcat -e -h; the body is never read): which queue it is in, arrival time and size, every envelope recipient with its state (pending / delivered / canceled) and, for pending ones, the delay reason with category, hint and provider playbook; the Received route oldest first (hosts, IPs, TLS, per-hop delay); DKIM signatures and whether they align with the From: domain; the primary headers; and notes (missing Message-ID/Date, unaligned DKIM, bulk mail without one-click unsubscribe, null sender, on hold). Always redacted: local parts become [user-N] (domains kept), display names, subjects and free-text headers are hidden, credential-like headers removed."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in QueueMessageIn) (*mcp.CallToolResult, message.Report, error) {
+			r, err := env.Message(ctx, strings.TrimSpace(in.QueueID), true)
+			return nil, r, err
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "mail_dns_check", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(true)},

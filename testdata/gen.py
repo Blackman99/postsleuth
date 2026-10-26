@@ -97,3 +97,72 @@ lines.sort(key=lambda x: x[0])
 with open(f"{out}/mail.log", "w") as f:
     for _, l in lines:
         f.write(l + "\n")
+
+# One queued message as `postcat -e -h -q ID` prints it (envelope + primary
+# headers, never the body): the oldest deferred Gmail message in the queue.
+m = min((m for m in msgs if m["queue_name"] == "deferred" and m["recipients"][0]["address"].endswith("@gmail.com")),
+        key=lambda m: m["arrival_time"])
+q, at, rcpt = m["queue_id"], m["arrival_time"], m["recipients"][0]["address"]
+def rfc(t):
+    return dt.datetime.fromtimestamp(t, tz).strftime("%a, %d %b %Y %H:%M:%S +0800 (CST)")
+asct = dt.datetime.fromtimestamp(at, tz).strftime("%a %b %e %H:%M:%S %Y")
+path = f"deferred/{q[0]}/{q}"
+size = m["message_size"]
+pc = f"""*** ENVELOPE RECORDS {path} ***
+message_size:           {size:>5}             812               2               0           {size:>5}               0
+message_arrival_time: {asct}
+create_time: {asct}
+named_attribute: rewrite_context=remote
+sender_fullname: 
+sender: alerts@example.com
+named_attribute: log_client_name=app01.internal
+named_attribute: log_client_address=10.0.0.12
+named_attribute: log_message_origin=app01.internal[10.0.0.12]
+named_attribute: log_helo_name=app01.internal
+named_attribute: log_protocol_name=ESMTP
+named_attribute: client_name=app01.internal
+named_attribute: reverse_client_name=app01.internal
+named_attribute: client_address=10.0.0.12
+named_attribute: client_port=40312
+named_attribute: server_address=10.0.0.2
+named_attribute: server_port=25
+named_attribute: helo_name=app01.internal
+named_attribute: protocol_name=ESMTPS
+named_attribute: client_address_type=2
+named_attribute: dsn_orig_rcpt=rfc822;{rcpt}
+original_recipient: {rcpt}
+recipient: {rcpt}
+named_attribute: dsn_orig_rcpt=rfc822;oncall@example.org
+original_recipient: oncall@example.org
+done_recipient: oncall@example.org
+*** MESSAGE CONTENTS {path} ***
+Received: from app01.internal (app01.internal [10.0.0.12])
+\t(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+\t key-exchange X25519 server-signature RSA-PSS (2048 bits) server-digest SHA256)
+\t(No client certificate requested)
+\tby mail.example.com (Postfix) with ESMTPS id {q};
+\t{rfc(at)}
+Received: by app01.internal (Postfix, from userid 1001)
+\tid 4bNqJx2rG9z1Hk; {rfc(at - 1)}
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=example.com;
+\ts=mail; t={at}; bh=Zm9vYmFyYmF6cXV4cXV1eGZvb2JhcmJhenF1eHF1dXg=;
+\th=From:To:Subject:Date:Message-ID:List-Unsubscribe;
+\tb=c2lnbmF0dXJlLXRoYXQtZG9lcy1ub3QtbWF0dGVyLWhlcmUtaXQtaXMtYW5vbnltaXNlZA
+\t aGVyZS1pcy1zb21lLW1vcmUtYmFzZTY0LWZvci10aGUtc2lnbmF0dXJl
+From: "Example Alerts" <alerts@example.com>
+To: Jamie Smith <{rcpt}>, On-call <oncall@example.org>
+Subject: [ALERT] db-3 disk usage above 90% for 15 minutes
+Date: {rfc(at - 1)}
+Message-ID: <{at}.4bNqJx2rG9@app01.example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="=_b1_9f8e7d6c"
+Precedence: bulk
+List-Unsubscribe: <mailto:unsubscribe@example.com?subject=unsub-{q.lower()}>
+X-Mailer: alertd 4.2.1
+X-Api-Key: alertd-demo-key-9f8e7d6c5b4a3928
+*** HEADER EXTRACTED {path} ***
+named_attribute: encoding=8bit
+*** MESSAGE FILE END {path} ***
+"""
+with open(f"{out}/postcat-{q}.txt", "w") as f:
+    f.write(pc)
