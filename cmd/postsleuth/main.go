@@ -46,6 +46,8 @@ Usage:
   postsleuth trend               per-destination deferral rate over time (is it getting better?)
   postsleuth playbook [ID]       Gmail / Microsoft / Yahoo recovery steps for what is failing here
                                  (gmail|microsoft|yahoo to filter, --reply "TEXT" for one reply, --list)
+  postsleuth message ID          one queued message: who is still waiting and why, route, DKIM,
+                                 headers (postcat -e -h; body never read; personal data redacted)
   postsleuth trace ID|ADDRESS    every log line for a message
   postsleuth dns [DOMAIN]        MX, SPF, DKIM, DMARC, PTR/FCrDNS checks
   postsleuth config              delivery-relevant postconf -n settings
@@ -64,6 +66,8 @@ Common flags:
   --log FILE        mail log to read (repeatable, .gz ok, - for stdin); default: maillog_file, /var/log/mail.log, /var/log/maillog, journald
   --log-cmd CMD     command whose output is the log, e.g. "journalctl -u postfix@- -o short-iso"
   --queue-file FILE read saved "postqueue -j" output instead of running postqueue
+  --message-file F  (message) read saved "postcat -e -h -q ID" output instead of running postcat
+  --unredacted      (message) show addresses and subject as stored; credentials stay hidden
   --since DUR       log window: 1h, 24h, 7d, all
   --resolver IP     DNS server for checks (default: system resolver)
   --json            machine-readable output
@@ -198,6 +202,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return cmdLog(ctx, fs, &c, args, stdout)
 		case "trend":
 			return cmdTrend(ctx, fs, &c, args, stdout)
+		case "message", "msg":
+			return cmdMessage(ctx, fs, &c, args, stdout)
 		case "playbook", "playbooks":
 			return cmdPlaybook(ctx, fs, &c, args, stdout)
 		case "trace":
@@ -503,6 +509,31 @@ func cmdTrace(ctx context.Context, fs *flag.FlagSet, c *common, args []string, w
 			fmt.Fprintf(w, "  %s\n", s.Dim(l))
 		}
 	}
+	return nil
+}
+
+func cmdMessage(ctx context.Context, fs *flag.FlagSet, c *common, args []string, w io.Writer) error {
+	var file string
+	var unredacted bool
+	fs.StringVar(&file, "message-file", "", "saved postcat -e -h -q ID output")
+	fs.BoolVar(&unredacted, "unredacted", false, "show addresses and subject as stored")
+	pos, err := parseAll(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return fmt.Errorf("usage: postsleuth message QUEUE_ID  (find IDs with: postsleuth queue --list)")
+	}
+	env := c.env()
+	env.MessageFile = file
+	r, err := env.Message(ctx, pos[0], !unredacted)
+	if err != nil {
+		return err
+	}
+	if c.jsonOut {
+		return printJSON(w, r)
+	}
+	doctor.WriteMessage(w, c.style(), r)
 	return nil
 }
 

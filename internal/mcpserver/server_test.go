@@ -20,8 +20,12 @@ import (
 func fakePostfix(t *testing.T) string {
 	dir := t.TempDir()
 	rec := filepath.Join(dir, "calls.log")
-	for _, n := range []string{"postqueue", "postsuper", "postconf"} {
+	for _, n := range []string{"postqueue", "postsuper", "postconf", "postcat"} {
 		script := "#!/bin/sh\necho \"" + n + " $*\" >> " + rec + "\n"
+		if n == "postcat" {
+			fixture, _ := filepath.Abs("../../testdata/postcat-F543B5DFCE.txt")
+			script += "cat " + fixture + "\n"
+		}
 		if n == "postconf" {
 			script += "echo 'myhostname = mail.example.com'\necho 'relayhost = [smtp.relay.example]:587'\necho 'smtp_sasl_password = hunter2'\n"
 		}
@@ -83,7 +87,7 @@ func TestReadOnlyByDefault(t *testing.T) {
 	fakePostfix(t)
 	cs := connect(t, false)
 	ts := tools(t, cs)
-	for _, n := range []string{"postfix_doctor", "postfix_queue_summary", "postfix_queue_list", "postfix_queue_shape", "postfix_log_stats", "postfix_log_trend", "postfix_log_trace", "mail_dns_check", "postfix_config", "postfix_reason_categories", "postfix_provider_playbook"} {
+	for _, n := range []string{"postfix_doctor", "postfix_queue_summary", "postfix_queue_list", "postfix_queue_shape", "postfix_log_stats", "postfix_log_trend", "postfix_log_trace", "mail_dns_check", "postfix_config", "postfix_reason_categories", "postfix_provider_playbook", "postfix_queue_message"} {
 		tl, ok := ts[n]
 		if !ok {
 			t.Fatalf("missing tool %s", n)
@@ -211,5 +215,44 @@ func TestMutationsNeedFlagAndConfirm(t *testing.T) {
 	b, _ := os.ReadFile(rec)
 	if !strings.Contains(string(b), "postsuper -r ABCDE12345") || !strings.Contains(string(b), "postqueue -s gmail.com") {
 		t.Fatalf("calls: %s", b)
+	}
+}
+
+func TestQueueMessageTool(t *testing.T) {
+	rec := fakePostfix(t)
+	cs := connect(t, false)
+	tl := tools(t, cs)["postfix_queue_message"]
+	if tl == nil || tl.Annotations == nil || !tl.Annotations.ReadOnlyHint || tl.Annotations.DestructiveHint != nil && *tl.Annotations.DestructiveHint {
+		t.Fatalf("tool %+v", tl)
+	}
+	schema, _ := json.Marshal(tl.InputSchema)
+	if strings.Contains(string(schema), "redact") {
+		t.Fatalf("MCP must not offer a way to turn redaction off: %s", schema)
+	}
+	out, res := call(t, cs, "postfix_queue_message", map[string]any{"queue_id": "F543B5DFCE"})
+	if res.IsError {
+		t.Fatalf("%v", res.Content)
+	}
+	if out["queue"] != "deferred" || out["redacted"] != true || len(out["hops"].([]any)) != 2 {
+		t.Fatalf("%v", out)
+	}
+	b, _ := json.Marshal(out)
+	for _, leak := range []string{"yuki342", "alerts@", "Jamie", "db-3", "alertd-demo-key"} {
+		if strings.Contains(string(b), leak) {
+			t.Errorf("MCP output leaks %q", leak)
+		}
+	}
+	rc := out["recipients"].([]any)[0].(map[string]any)
+	if rc["address"] != "[user-2]@gmail.com" || rc["playbook"] != "gmail-4.7.28" {
+		t.Fatalf("recipient %v", rc)
+	}
+	for _, bad := range []string{"ALL", "-b", "F543B5DFCE --body", "../F543B5DFCE"} {
+		if _, res := call(t, cs, "postfix_queue_message", map[string]any{"queue_id": bad}); !res.IsError {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	calls, _ := os.ReadFile(rec)
+	if n := strings.Count(string(calls), "postcat "); n != 1 || !strings.Contains(string(calls), "postcat -e -h -q F543B5DFCE\n") {
+		t.Fatalf("postcat calls: %q", calls)
 	}
 }

@@ -101,3 +101,47 @@ func TestPlaybookCommand(t *testing.T) {
 		t.Fatalf("doctor text:\n%s", out.String())
 	}
 }
+
+func TestMessageFromFiles(t *testing.T) {
+	base := []string{"--queue-file", "../../testdata/queue.json", "--message-file", "../../testdata/postcat-F543B5DFCE.txt", "--no-color"}
+	var out, errb bytes.Buffer
+	ec := run(append([]string{"message", "F543B5DFCE"}, base...), &out, &errb)
+	s := out.String()
+	if ec != 0 {
+		t.Fatalf("exit %d: %s", ec, errb.String())
+	}
+	for _, want := range []string{"MESSAGE  F543B5DFCE · deferred", "[user-2]@gmail.com  rate_limit", "postsleuth playbook gmail-4.7.28",
+		"delivered  [user-3]@example.org", "ROUTE    2 hops", "local submission on app01.internal", "→ mail.example.com · ESMTPS · TLSv1.3",
+		"DKIM d=example.com s=mail ✓ aligned", "[removed: looks like a credential]", "no one-click unsubscribe", "body never read"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %q in\n%s", want, s)
+		}
+	}
+	for _, leak := range []string{"yuki342", "alerts@", "Jamie", "db-3", "alertd-demo-key"} {
+		if strings.Contains(s, leak) {
+			t.Errorf("leaks %q", leak)
+		}
+	}
+
+	out.Reset()
+	if ec := run(append([]string{"message", "F543B5DFCE", "--json", "--unredacted"}, base...), &out, &errb); ec != 0 ||
+		!strings.Contains(out.String(), `"address": "yuki342@gmail.com"`) || strings.Contains(out.String(), "alertd-demo-key") || !strings.Contains(out.String(), `"redacted": false`) {
+		t.Fatalf("unredacted json: %d %s", ec, out.String())
+	}
+
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"message", "ALL"}, "invalid queue ID"},
+		{[]string{"message", "F543B5DFCE;id"}, "invalid queue ID"},
+		{[]string{"message"}, "usage: postsleuth message QUEUE_ID"},
+		{[]string{"message", "ABCDE12345"}, "holds message F543B5DFCE, not ABCDE12345"},
+	} {
+		out.Reset()
+		errb.Reset()
+		if ec := run(append(c.args, base...), &out, &errb); ec != 2 || !strings.Contains(errb.String(), c.want) {
+			t.Errorf("%v: exit %d, %q", c.args, ec, errb.String())
+		}
+	}
+}

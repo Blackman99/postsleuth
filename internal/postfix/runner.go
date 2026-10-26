@@ -5,6 +5,7 @@ package postfix
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -78,10 +79,52 @@ func ParseConfig(s string) map[string]string {
 	return m
 }
 
-var queueIDRe = regexp.MustCompile(`^[0-9A-Za-z]{5,32}$`)
+// Postfix queue IDs (src/global/mail_queue.h) come in two shapes:
+//
+//   - short (default): upper-case hex, 5 hex digits of microseconds followed
+//     by the inode number in hex, e.g. 4F2A1C3B9D;
+//   - long (enable_long_queue_ids=yes): seconds and microseconds in base 52
+//     (digits and letters without vowels), the separator 'z', then the inode
+//     in base 51 (the same alphabet without 'z'), e.g. 4bNqJx2rG9z1Hk.
+//
+// Anything else is rejected before it can reach a command line, including
+// the bulk keyword ALL, option-looking strings and shell metacharacters (a
+// --wrap "ssh host" prefix hands arguments to a remote shell).
+var (
+	shortQueueIDRe = regexp.MustCompile(`^[0-9A-F]{6,24}$`)
+	longQueueIDRe  = regexp.MustCompile(`^[0-9B-DF-HJ-NP-TV-Zb-df-hj-np-tv-z]{10,16}z[0-9B-DF-HJ-NP-TV-Zb-df-hj-np-tv-y]{1,14}$`)
+)
 
-// ValidQueueID reports whether id looks like a Postfix queue ID (short or long form).
-func ValidQueueID(id string) bool { return queueIDRe.MatchString(id) && !strings.EqualFold(id, "ALL") }
+// ValidQueueID reports whether id is a Postfix queue ID in short or long form.
+// It never accepts ALL.
+func ValidQueueID(id string) bool {
+	if len(id) > 32 || strings.EqualFold(id, "ALL") {
+		return false
+	}
+	return shortQueueIDRe.MatchString(id) || longQueueIDRe.MatchString(id)
+}
+
+// QueueIDHelp explains the accepted queue ID format in error messages.
+const QueueIDHelp = "expected a Postfix queue ID such as 4F2A1C3B9D (short, hex) or 4bNqJx2rG9z1Hk (long); bulk ALL is never accepted"
+
+// QueueMessage returns the envelope records and primary headers of one queued
+// message (postcat -e -h -q ID). The body is never requested.
+func (r Runner) QueueMessage(ctx context.Context, id string) (string, error) {
+	if !ValidQueueID(id) {
+		return "", fmt.Errorf("invalid queue ID %q: %s", id, QueueIDHelp)
+	}
+	out, err := r.Run(ctx, "postcat", "-e", "-h", "-q", id)
+	if err != nil {
+		if strings.Contains(err.Error(), "No such file or directory") || strings.Contains(err.Error(), "open queue file") {
+			return "", fmt.Errorf("%w: %s is not in the queue (already delivered, bounced or deleted?); follow it in the log with: postsleuth trace %s", ErrNotQueued, id, id)
+		}
+		return "", err
+	}
+	return string(out), nil
+}
+
+// ErrNotQueued means the queue ID does not exist in any queue.
+var ErrNotQueued = errors.New("not queued")
 
 func checkIDs(ids []string) error {
 	if len(ids) == 0 {
@@ -89,7 +132,7 @@ func checkIDs(ids []string) error {
 	}
 	for _, id := range ids {
 		if !ValidQueueID(id) {
-			return fmt.Errorf("invalid queue ID %q", id)
+			return fmt.Errorf("invalid queue ID %q: %s", id, QueueIDHelp)
 		}
 	}
 	return nil
