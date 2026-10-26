@@ -115,8 +115,12 @@ func (r Runner) QueueMessage(ctx context.Context, id string) (string, error) {
 	}
 	out, err := r.Run(ctx, "postcat", "-e", "-h", "-q", id)
 	if err != nil {
-		if strings.Contains(err.Error(), "No such file or directory") || strings.Contains(err.Error(), "open queue file") {
+		msg := err.Error()
+		if strings.Contains(msg, "open queue file") || strings.Contains(msg, id+": No such file or directory") {
 			return "", fmt.Errorf("%w: %s is not in the queue (already delivered, bounced or deleted?); follow it in the log with: postsleuth trace %s", ErrNotQueued, id, id)
+		}
+		if strings.Contains(msg, "executable file not found") {
+			return "", fmt.Errorf("%w (postcat ships with Postfix: run on the mail host, add --wrap \"docker exec -i CONTAINER\", or read a saved copy with --message-file)", err)
 		}
 		return "", err
 	}

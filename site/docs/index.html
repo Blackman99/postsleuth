@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>postsleuth docs: Postfix queue, log and DNS diagnosis (CLI + MCP)</title>
-<meta name="description" content="postsleuth documentation: install, doctor, queue, qshape, mail log, trace, trend, Gmail / Microsoft / Yahoo recovery playbooks, SPF/DKIM/DMARC/PTR checks, MCP server setup, failure categories, safety model.">
+<meta name="description" content="postsleuth documentation: install, doctor, queue, qshape, one queued message (redacted headers), mail log, trace, trend, Gmail / Microsoft / Yahoo recovery playbooks, SPF/DKIM/DMARC/PTR checks, MCP server setup, failure categories, safety model.">
 <link rel="canonical" href="https://blackman99.github.io/postsleuth/docs/">
 <link rel="icon" href="https://blackman99.github.io/postsleuth/favicon.svg" type="image/svg+xml">
 <meta property="og:type" content="website"><meta property="og:site_name" content="postsleuth">
@@ -20,7 +20,7 @@
 <div class="docs">
 <nav class="route" aria-label="Contents"><ol>
 <li><a href="#install">Install</a></li><li><a href="#quick">Quick start</a></li><li><a href="#doctor">doctor</a></li><li><a href="#queue">queue &amp; shape</a></li>
-<li><a href="#log">log &amp; trace</a></li><li><a href="#trend">trend</a></li><li><a href="#playbook">playbook</a></li><li><a href="#dns">dns</a></li><li><a href="#mcp">MCP server</a></li><li><a href="#tools">Tool reference</a></li>
+<li><a href="#message">message</a></li><li><a href="#log">log &amp; trace</a></li><li><a href="#trend">trend</a></li><li><a href="#playbook">playbook</a></li><li><a href="#dns">dns</a></li><li><a href="#mcp">MCP server</a></li><li><a href="#tools">Tool reference</a></li>
 <li><a href="#categories">Failure categories</a></li><li><a href="#sources">Where data comes from</a></li><li><a href="#safety">Changing the queue</a></li><li><a href="#scripts">JSON &amp; exit codes</a></li><li><a href="#faq">Troubleshooting</a></li>
 </ol></nav>
 <main id="content" class="doc">
@@ -29,12 +29,13 @@
 
 <h2 id="install">Install</h2>
 <pre><code>go install github.com/Blackman99/postsleuth/cmd/postsleuth@latest</code></pre>
-<p>Or download a static binary (linux, darwin, windows; amd64 and arm64) from <a href="https://github.com/Blackman99/postsleuth/releases/latest">GitHub Releases</a>, unpack it, and put <code>postsleuth</code> on your <code>PATH</code>. It has no runtime dependencies. On the mail host it calls the Postfix tools that are already there: <code>postqueue</code>, <code>postconf</code> and, only when you allow it, <code>postsuper</code>.</p>
+<p>Or download a static binary (linux, darwin, windows; amd64 and arm64) from <a href="https://github.com/Blackman99/postsleuth/releases/latest">GitHub Releases</a>, unpack it, and put <code>postsleuth</code> on your <code>PATH</code>. It has no runtime dependencies. On the mail host it calls the Postfix tools that are already there: <code>postqueue</code>, <code>postconf</code>, <code>postcat</code> and, only when you allow it, <code>postsuper</code>.</p>
 
 <h2 id="quick">Quick start</h2>
 <pre><code>postsleuth doctor                 # everything, with next steps
 postsleuth queue                  # what is stuck and why
 postsleuth shape                  # which destination, since when
+postsleuth message F543B5DFCE     # one queued message: route, DKIM, headers (redacted)
 postsleuth log --since 24h        # what happened
 postsleuth trend --domain gmail.com # deferral rate over time
 postsleuth playbook               # Gmail / Microsoft / Yahoo recovery steps
@@ -54,6 +55,19 @@ postsleuth queue --list --category timeout --limit 20
 postsleuth shape [deferred|active|hold|incoming|all] [--by sender] [--top 20]</code></pre>
 <p>The summary groups recipients by normalised delay reason (addresses, IPs and tracking IDs are stripped so identical failures group together), classifies each group, and lists the domains it affects. <code>--domain</code> with a leading dot also matches subdomains.</p>
 <p><code>shape</code> is the <a href="https://www.postfix.org/QSHAPE_README.html">qshape</a> view: rows are domains, columns are message age in minutes (5, 10, 20, … 1280, 1280+), each message counted once per domain. A row that fills the left columns is a fresh problem; one that fills the right is old. <code>--by sender</code> is how you find the compromised account behind a spam run.</p>
+
+<h2 id="message">message</h2>
+<pre><code>postsleuth message QUEUE_ID [--json] [--unredacted] [--message-file postcat.txt]</code></pre>
+<p>The queue tells you a message is stuck; <code>message</code> tells you what the stuck message <em>is</em>. It runs <code>postcat -e -h -q QUEUE_ID</code> (envelope and headers; the body is never requested, and body lines in a saved file are dropped unread) and joins it with the message's <code>postqueue -j</code> entry:</p>
+<ul>
+<li><strong>Where and since when:</strong> the queue it sits in (deferred, hold, active…), arrival time and age, size.</li>
+<li><strong>Who it is waiting for:</strong> every envelope recipient with its status (pending, delivered, cancelled), the full delay reason, its category and hint, and the provider playbook when Gmail, Microsoft or Yahoo is the one refusing it.</li>
+<li><strong>Route:</strong> the <code>Received:</code> hops oldest first, with protocol, TLS version, queue IDs and the time spent between hops. Local submissions (sendmail/pickup) are named as such.</li>
+<li><strong>Authentication:</strong> the From: domain, each DKIM signature's <code>d=</code> and <code>s=</code>, and whether it aligns with From: (organisational domain, so <code>news.example.co.uk</code> aligns with <code>example.co.uk</code>), which is what DMARC checks.</li>
+<li><strong>Notes</strong> that predict a refusal: several From: headers, no Message-ID or Date, no DKIM signature or a non-aligned one, bulk mail without <code>List-Unsubscribe</code> or without RFC 8058 one-click (which Gmail and Yahoo require from bulk senders), a message on hold.</li>
+</ul>
+<p><strong>Redacted by default.</strong> Domains stay (they are what you diagnose); local parts become stable pseudonyms, so <code>[user-2]@gmail.com</code> is the same person everywhere in the report. Display names, the subject (only its length is shown), Message-ID local parts, References and unknown <code>X-</code> headers are hidden; authenticated submission hops lose the client's IP and login; DKIM signatures keep their tags but lose <code>b=</code> and <code>bh=</code>. Headers that look like credentials (<code>Authorization</code>, <code>Cookie</code>, <code>X-Api-Key</code>, anything named token, secret, password or session) are removed. <code>--unredacted</code> shows addresses and the subject as stored, on the CLI only: credentials stay removed and the body is still never read. The MCP tool has no way to turn redaction off.</p>
+<p>Queue IDs are checked against Postfix's two formats before anything runs: short (hex, <code>F543B5DFCE</code>) and long (<code>4bNqJx2rG9z1Hk</code>, with <code>enable_long_queue_ids</code>). <code>ALL</code>, options and anything else are refused. An ID that is no longer queued points you to <code>postsleuth trace ID</code>. <code>--message-file</code> reads a saved <code>postcat -e -h -q</code> output (<code>-</code> for stdin) for offline analysis.</p>
 
 <h2 id="log">log &amp; trace</h2>
 <pre><code>postsleuth log [--since 1h|24h|7d|all] [--domain gmail.com] [--top 15]
@@ -137,7 +151,7 @@ postsleuth playbook --list</code></pre>
 <pre><code>{"mcpServers": {"postsleuth": {"command": "postsleuth",
   "args": ["mcp", "--wrap", "docker exec -i mailserver"]}}}</code></pre>
 <p><code>--wrap</code> prefixes every Postfix command, and also reads the container's log (<code>maillog_file</code>, <code>/var/log/mail.log</code>, <code>/var/log/mail/mail.log</code>…) through it. For mailcow, the Postfix container is usually <code>mailcowdockerized-postfix-mailcow-1</code>, and the log is easiest via <code>--log-cmd "docker logs mailcowdockerized-postfix-mailcow-1"</code>.</p>
-<p>Prompts that work well: "Why is mail to Gmail stuck?", "Outlook says S3150, what do I do?", "Which sender filled the deferred queue today?", "Did bob@example.org's message arrive?", "Is our SPF/DKIM/DMARC set up right for this IP?"</p>
+<p>Prompts that work well: "Why is mail to Gmail stuck?", "Outlook says S3150, what do I do?", "Which sender filled the deferred queue today?", "Did bob@example.org's message arrive?", "What is the oldest message to Gmail, and is its DKIM aligned?", "Is our SPF/DKIM/DMARC set up right for this IP?"</p>
 
 <h2 id="tools">Tool reference</h2>
 <p>Each tool returns structured JSON (with an output schema) plus the same JSON as text.</p>
@@ -152,6 +166,7 @@ postsleuth playbook --list</code></pre>
 <tr><td><code>mail_dns_check</code></td><td>Check the DNS records receivers use to accept or reject your mail: MX, SPF (syntax, 10-lookup limit, whether the sending IP is authorised), DKIM selector keys (presence, key size), DMARC policy and reporting, PTR with forward confirmation (FCrDNS) against myhostname.</td><td class='args'><code>domain</code> sending domain (default: myorigin/mydomain from postconf)<br><code>ips</code> sending IPs to check SPF authorisation and PTR/FCrDNS for (default: smtp_bind_address or myhostname&#x27;s public A/AAAA)<br><code>selectors</code> DKIM selectors (default: taken from opendkim log lines, else common names are probed)</td></tr>
 <tr><td><code>postfix_config</code></td><td>Delivery-relevant non-default Postfix settings from postconf -n (relayhost, TLS policy, SASL, concurrency/rate limits, queue lifetimes, domains, milters). Secret-looking values are redacted.</td><td class='args'>none</td></tr>
 <tr><td><code>postfix_provider_playbook</code></td><td>Recovery playbooks for Gmail / Google Workspace, Microsoft (Outlook.com, Microsoft 365) and Yahoo / AOL: what the code means, whether Postfix's retries can succeed, ordered Postfix-specific steps and the provider's official pages. With no arguments it scans the queue and log and returns the playbooks for what is failing, with evidence counts and domains; <code>reply</code> looks up one pasted reply; <code>id</code> returns one playbook.</td><td class='args'><code>reply</code> one SMTP reply or delay reason to look up<br><code>domain</code> recipient domain of <code>reply</code>, when it names no host<br><code>id</code> one playbook, e.g. gmail-4.7.28<br><code>provider</code> gmail, microsoft or yahoo (server scan)<br><code>since</code> log window for the scan (default 24h)</td></tr>
+<tr><td><code>postfix_queue_message</code></td><td>Envelope and headers of one queued message (<code>postcat -e -h -q</code>; the body is never read): queue, age, size, recipients with status and classified delay reasons, Received hops oldest first with TLS, DKIM signatures and alignment with From:, header notes that predict a refusal. Always redacted: domains kept, local parts pseudonymised, subject and personal values hidden, credential headers removed.</td><td class='args'><code>queue_id</code> one queue ID from <code>postfix_queue_list</code> (short hex or long form; <code>ALL</code> refused)</td></tr>
 <tr><td><code>postfix_reason_categories</code></td><td>List the failure categories postsleuth assigns to delay/bounce reasons, with the hint for each.</td><td class='args'>none</td></tr>
 <tr><td colspan="3" class="sep">Only with <code>--allow-mutations</code>, each also needs <code>confirm: true</code>:</td></tr>
 <tr><td><code>postfix_queue_flush</code></td><td>Retry now: queue IDs (<code>postqueue -i</code>), one site (<code>postqueue -s</code>, needs <code>fast_flush_domains</code>), or everything (<code>postqueue -f</code>).</td><td class="args"><code>queue_ids</code>, <code>site</code>, <code>all</code>, <code>confirm</code></td></tr>
@@ -187,6 +202,7 @@ postsleuth playbook --list</code></pre>
 <ul>
 <li><strong>Queue:</strong> <code>postqueue -j</code> (Postfix 3.1+). Or a saved snapshot: <code>--queue-file queue.json</code> (<code>-</code> for stdin), handy for analysing a customer's server offline.</li>
 <li><strong>Log:</strong> <code>--log FILE</code> (repeatable, <code>.gz</code> fine, <code>-</code> for stdin), or <code>--log-cmd "journalctl -u postfix@- -o short-iso"</code>. Without either: Postfix's <code>maillog_file</code>, then <code>/var/log/mail.log</code>, <code>/var/log/maillog</code>, <code>/var/log/mail/mail.log</code>, <code>/var/log/postfix.log</code>, then journald (mail facility). Traditional syslog, RFC 3339 and journald <code>short-iso</code> timestamps are understood; multi-instance names like <code>postfix-out/smtp</code> too.</li>
+<li><strong>One message:</strong> <code>postcat -e -h -q ID</code> (envelope records and headers only), or a saved copy with <code>--message-file</code>.</li>
 <li><strong>Config:</strong> <code>postconf -n</code> and <code>postconf -x</code>. Parameters whose names look like secrets are redacted.</li>
 <li><strong>DNS:</strong> the system resolver, or <code>--resolver IP</code>.</li>
 </ul>
@@ -196,7 +212,7 @@ postsleuth playbook --list</code></pre>
 <ul>
 <li>the CLI accepts <code>flush</code>, <code>requeue</code>, <code>hold</code>, <code>release</code> and <code>delete</code>;</li>
 <li>the MCP server adds the five tools above, annotated as non-read-only (delete as destructive), and each refuses to run without <code>confirm: true</code>;</li>
-<li>operations take explicit queue IDs (validated; <code>ALL</code> and anything starting with <code>-</code> is rejected). Commands are executed directly, never through a shell.</li>
+<li>operations take explicit queue IDs, each checked against Postfix's short (hex) and long queue ID formats, so <code>ALL</code>, options and shell characters are rejected before anything runs. Commands are executed directly, never through a shell.</li>
 </ul>
 <p>Before flushing a destination that is rate-limiting you (Gmail <code>4.7.28</code>), don't: a burst of retries makes it worse. Fix the cause, wait, and let Postfix's backoff work.</p>
 

@@ -111,15 +111,42 @@ h2{font:700 clamp(26px,3vw,38px)/1.1 Jost,sans-serif;margin:0 0 16px;display:fle
 .strip-svg{display:block;width:100%;height:40px;overflow:visible}
 .sl{stroke-width:10;stroke-linecap:round;fill:none}
 .strain{fill:var(--ink);stroke:#fff;stroke-width:2;opacity:0}
-.stops{list-style:none;margin:-30px 0 0;padding:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+.stops{list-style:none;margin:-30px 0 0;padding:0;display:grid;grid-template-columns:repeat(8,minmax(0,1fr))}
 .stops li{padding:0 14px 0 0;text-align:left}
 .stops .dot{display:block;width:22px;height:22px;border-radius:50%;background:#fff;border:4px solid var(--ink);margin:0 0 14px 4px;transition:background .25s,transform .25s}
 .stops li.lit .dot{background:var(--jade);transform:scale(1.15)}
 .stops b{display:block;font-size:22px;font-weight:700}
 .stops code{display:block;margin:2px 0 8px;color:var(--jade);font-weight:500}
 .stops p{margin:0;font-size:16px;line-height:1.45}
-.stops.tools{grid-template-columns:repeat(10,minmax(0,1fr))}
-.stops.tools li{height:150px}
+.stops.tools{grid-template-columns:repeat(11,minmax(0,1fr))}
+/* ---------- one train: calling points + manifest ---------- */
+.sl.mul{stroke:var(--mul)}.sl.gap{stroke-dasharray:2 16}
+.stops.calls{grid-template-columns:repeat(4,minmax(0,1fr))}
+.stops.calls b{font-size:20px;overflow-wrap:anywhere}
+.stops.calls code{font-size:14px}
+.stops.calls p code.in{display:inline;margin:0;color:var(--ink);font-size:13px;background:#fff;padding:1px 5px;border-radius:3px;overflow-wrap:anywhere}
+.stops.calls li.wait .dot{border-color:var(--mul)}
+.stops.calls li.wait.lit .dot{background:var(--mul)}
+.stops.calls li.wait>code{color:var(--mul)}
+.stops.calls li.term .dot{border-color:var(--mul);border-style:dashed}
+.stops.calls li.term.lit .dot{background:#fff;transform:none}
+.stops.calls li.term>code{color:#5d5470}
+.manifest-row{margin-top:44px}
+.h3{font:700 22px/1.2 Jost,sans-serif;margin:0 0 10px}
+.manifest{background:#fff;border:2px solid var(--ink);border-left:10px solid var(--mul);padding:14px 18px 12px}
+.mf-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 8px;padding-bottom:8px;border-bottom:2px solid var(--ink);font:500 13px "DM Mono",monospace;color:#5d5470}
+.mf-head span:first-child{color:var(--ink);font-weight:500;letter-spacing:.04em}
+.manifest dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 18px;margin:0;font:400 14px/1.45 "DM Mono",monospace}
+.manifest dt{font-weight:500}
+.manifest dd{margin:0;color:#5d5470;overflow-wrap:anywhere;transition:color .3s}
+.manifest dd[data-raw]{color:var(--mul)}
+.manifest.raw dd[data-raw]{color:var(--ink)}
+.manifest dd.gone{justify-self:start;color:#5d5470;border:2px dashed var(--mul);border-radius:3px;padding:0 6px}
+.manifest dd.flip{animation:flip .32s cubic-bezier(.5,0,.2,1)}
+@keyframes flip{0%{transform:scaleY(1)}45%{transform:scaleY(0)}55%{transform:scaleY(0)}100%{transform:scaleY(1)}}
+.mf-note{margin:12px 0 0;padding-top:10px;border-top:1px solid var(--line);font-size:15px;line-height:1.45}
+.mf-note b{display:inline-block;width:20px;height:20px;margin-right:6px;border-radius:50%;background:var(--mul);color:#fff;font-size:13px;line-height:20px;text-align:center}
+.stops.tools li{height:180px}
 .stops.tools b{font:500 14px "DM Mono",monospace;display:inline-block;white-space:nowrap;transform:rotate(38deg);transform-origin:0 0;margin-left:14px}
 
 /* ---------- qshape matrix ---------- */
@@ -178,6 +205,10 @@ footer{padding:64px 0 40px;font-size:14px;color:#5d5470}
   .stops li{position:relative;padding:0 0 22px}
   .stops .dot{position:absolute;left:-34px;top:4px;margin:0}
   .stops.tools{grid-template-columns:1fr}
+  .stops.calls{grid-template-columns:1fr}
+  .stops.calls::before{background:linear-gradient(var(--jade) 0 48%,var(--mul) 48% 100%)}
+  .manifest dl{grid-template-columns:1fr;gap:0}
+  .manifest dd{margin-bottom:8px}
   .stops.tools b{writing-mode:horizontal-tb;transform:none;height:auto;margin:0}
   .two,.cfgs{grid-template-columns:1fr;gap:24px}
   .conn{grid-template-columns:1fr}
