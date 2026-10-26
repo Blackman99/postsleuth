@@ -239,4 +239,26 @@
     lever.querySelector('span').textContent = on ? 'on' : 'off';
     sec.classList.toggle('open', on);
   });
+
+  /* ---------- manifest: --unredacted flips the redacted values (CLI only; credentials stay removed) ---------- */
+  const un = document.getElementById('unredact');
+  const mf = document.getElementById('manifest');
+  if (un && mf) {
+    const dds = [...mf.querySelectorAll('dd[data-raw]')];
+    dds.forEach(d => d.dataset.red = d.textContent);
+    un.addEventListener('click', () => {
+      const on = un.getAttribute('aria-pressed') !== 'true';
+      un.setAttribute('aria-pressed', on);
+      un.querySelector('span').textContent = on ? 'on' : 'off';
+      dds.forEach((d, i) => {
+        const swap = () => { d.textContent = on ? d.dataset.raw : d.dataset.red; };
+        if (reduce) { swap(); return; }
+        setTimeout(() => {
+          d.classList.remove('flip'); void d.offsetWidth; d.classList.add('flip');
+          setTimeout(swap, 140);
+        }, i * 70);
+      });
+      mf.classList.toggle('raw', on);
+    });
+  }
 })();

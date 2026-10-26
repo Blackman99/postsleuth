@@ -39,6 +39,15 @@ Hide
 Type "clear"
 Enter
 Show
+Type "postsleuth message F543B5DFCE --queue-file queue.json --message-file postcat-F543B5DFCE.txt"
+Sleep 400ms
+Enter
+Sleep 9s
+
+Hide
+Type "clear"
+Enter
+Show
 Type "postsleuth trend --log mail.log --since all --domain gmail.com --no-color"
 Sleep 400ms
 Enter

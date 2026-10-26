@@ -140,11 +140,11 @@ func WriteMessage(w io.Writer, s Style, r message.Report) {
 			width = n
 		}
 	}
-	note := "as stored"
+	note := "as stored except credentials"
 	if r.Redacted {
 		note = "personal values redacted"
 	}
-	fmt.Fprintf(w, "%s %d more (Received in ROUTE, DKIM in AUTH) · %s · body never read\n", head(s, "HEADERS"), len(shown), note)
+	fmt.Fprintf(w, "%s %d of %d (Received in ROUTE, DKIM in AUTH) · %s · body never read\n", head(s, "HEADERS"), len(shown), len(r.Headers), note)
 	for _, h := range shown {
 		v := trim(h.Value, 96-width)
 		if h.Redacted || h.Removed {

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>postsleuth: why isn't Postfix delivering?</title>
-<meta name="description" content="Read-only Postfix diagnosis for you and your AI agent: queue, qshape, mail log deferral and bounce reasons, Gmail / Outlook / Yahoo recovery playbooks, SPF/DKIM/DMARC/PTR checks. CLI + MCP server, one Go binary.">
+<meta name="description" content="Read-only Postfix diagnosis for you and your AI agent: queue, qshape, one queued message with redacted headers, mail log deferral and bounce reasons, Gmail / Outlook / Yahoo recovery playbooks, SPF/DKIM/DMARC/PTR checks. CLI + MCP server, one Go binary.">
 <link rel="canonical" href="https://blackman99.github.io/postsleuth/">
 <link rel="icon" href="https://blackman99.github.io/postsleuth/favicon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#ece7f3">
@@ -179,13 +179,14 @@
 
 <section id="lines" class="lines" aria-labelledby="lines-h">
   <div class="wrap">
-    <h2 id="lines-h"><span class="bar jade"></span>Seven stops, one line</h2>
+    <h2 id="lines-h"><span class="bar jade"></span>Eight stops, one line</h2>
   </div>
   <div class="strip" data-strip>
     <svg class="strip-svg" viewBox="0 0 1000 40" preserveAspectRatio="none" aria-hidden="true"><path d="M20,20 H980" class="sl jade"/><rect class="strain" x="8" y="14" width="26" height="12" rx="6"/></svg>
     <ol class="stops">
       <li><span class="dot"></span><b>queue</b><code>postsleuth queue</code><p>Counts per queue, top domains, every delay reason grouped and classified into 17 causes with a hint.</p></li>
       <li><span class="dot"></span><b>shape</b><code>postsleuth shape</code><p>The qshape view: which destination is backing up, and since when, in age buckets.</p></li>
+      <li><span class="dot"></span><b>message</b><code>postsleuth message ID</code><p>One queued message: its route, DKIM alignment and the headers that get it refused. Redacted.</p></li>
       <li><span class="dot"></span><b>log</b><code>postsleuth log --since 24h</code><p>Sent, deferred, bounced, expired, rejected per domain. Bounce causes. Domains still failing. Trace any message.</p></li>
       <li><span class="dot"></span><b>trend</b><code>postsleuth trend</code><p>Deferral rate per destination over time buckets. Improving, worsening, or flat — is Gmail getting better?</p></li>
       <li><span class="dot"></span><b>dns</b><code>postsleuth dns</code><p>MX, SPF (10-lookup limit, is your IP allowed), DKIM keys, DMARC, PTR with forward confirmation.</p></li>
@@ -206,6 +207,43 @@
   </div>
 </section>
 
+<section id="train" class="train-sec" aria-labelledby="train-h">
+  <div class="wrap">
+    <h2 id="train-h"><span class="bar mul"></span>Calling points for one train</h2>
+    <p class="intro">The board says gmail.com has severe delays. <code>postsleuth message F543B5DFCE</code> follows one of those trains: it reads the envelope and headers with <code>postcat -e -h -q</code> (never the body), shows where the message has been, where it is waiting and why, and which header will get it refused next.</p>
+  </div>
+  <div class="strip journey" data-strip>
+    <svg class="strip-svg" viewBox="0 0 1000 40" preserveAspectRatio="none" aria-hidden="true"><path d="M20,20 H520" class="sl jade"/><path d="M520,20 H760" class="sl mul"/><path d="M790,20 H980" class="sl mul gap"/><rect class="strain" x="8" y="14" width="26" height="12" rx="6"/></svg>
+    <ol class="stops calls">
+      <li><span class="dot"></span><b>app01.internal</b><code>02:02:59 · pickup</code><p>Local submission by the alerting app. Queue ID <code class="in">4bNqJx2rG9z1Hk</code></p></li>
+      <li><span class="dot"></span><b>mail.example.com</b><code>02:03:00 · +1s</code><p>ESMTPS, TLSv1.3. DKIM <code class="in">d=example.com</code> aligned with From:</p></li>
+      <li class="wait"><span class="dot"></span><b>deferred</b><code>4h57m on the loop</code><p>Gmail <code class="in">421-4.7.28</code> rate limit → <code class="in">playbook gmail-4.7.28</code></p></li>
+      <li class="term"><span class="dot"></span><b>gmail.com</b><code>not reached</code><p><code class="in">[user-2]@gmail.com</code> pending. <code class="in">[user-3]@example.org</code> already delivered.</p></li>
+    </ol>
+  </div>
+  <div class="wrap two manifest-row">
+    <div>
+      <h3 class="h3">The passenger list stays private</h3>
+      <p>Domains are what you diagnose, so they stay. Local parts become pseudonyms that stay consistent through the report, the subject shrinks to its length, and anything that looks like a credential is removed. Over MCP it is always this way: <code>postfix_queue_message</code> has no switch to turn redaction off.</p>
+      <p class="mono-note">On the CLI, <code>--unredacted</code> shows addresses and the subject. Credentials and the body stay out either way.</p>
+      <button type="button" id="unredact" class="lever" aria-pressed="false" aria-controls="manifest">--unredacted <span>off</span></button>
+    </div>
+    <div class="manifest" id="manifest" aria-live="polite">
+      <p class="mf-head"><span>HEADERS</span><span>excerpt · body never read</span></p>
+      <dl>
+        <dt>From</dt><dd data-raw="&quot;Example Alerts&quot; &lt;alerts@example.com&gt;">[user-1]@example.com</dd>
+        <dt>To</dt><dd data-raw="Jamie Smith &lt;yuki342@gmail.com&gt;, On-call &lt;oncall@example.org&gt;">[user-2]@gmail.com, [user-3]@example.org</dd>
+        <dt>Subject</dt><dd data-raw="[ALERT] db-3 disk usage above 90% for 15 minutes">[redacted, 48 chars]</dd>
+        <dt>Message-ID</dt><dd data-raw="&lt;1791741780.4bNqJx2rG9@app01.example.com&gt;">&lt;[id]@app01.example.com&gt;</dd>
+        <dt>Precedence</dt><dd>bulk</dd>
+        <dt>List-Unsubscribe</dt><dd data-raw="&lt;mailto:unsubscribe@example.com?subject=unsub-f543b5dfce&gt;">[present: mailto; values hidden]</dd>
+        <dt>X-Api-Key</dt><dd class="gone">[removed: looks like a credential]</dd>
+      </dl>
+      <p class="mf-note"><b>!</b> List-Unsubscribe is mailto: only, so there is no one-click unsubscribe. Gmail and Yahoo require RFC 8058 one-click from bulk senders.</p>
+    </div>
+  </div>
+</section>
+
 <section id="agents" class="agents" aria-labelledby="ag-h">
   <div class="wrap">
     <h2 id="ag-h"><span class="bar jade"></span>Change here for your AI agent</h2>
@@ -218,6 +256,7 @@
       <li><span class="dot"></span><b>postfix_queue_summary</b></li>
       <li><span class="dot"></span><b>postfix_queue_list</b></li>
       <li><span class="dot"></span><b>postfix_queue_shape</b></li>
+      <li><span class="dot"></span><b>postfix_queue_message</b></li>
       <li><span class="dot"></span><b>postfix_log_stats</b></li>
       <li><span class="dot"></span><b>postfix_log_trend</b></li>
       <li><span class="dot"></span><b>postfix_log_trace</b></li>
